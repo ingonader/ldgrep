@@ -22,6 +22,120 @@ ODF_XLINK_NAMESPACE = "{http://www.w3.org/1999/xlink}"
 ODF_DC_NAMESPACE = "{http://purl.org/dc/elements/1.1/}"
 ODF_META_NAMESPACE = "{urn:oasis:names:tc:opendocument:xmlns:meta:1.0}"
 ODF_PARAGRAPH_TAGS = {f"{ODF_TEXT_NAMESPACE}p", f"{ODF_TEXT_NAMESPACE}h"}
+OCR_IMAGE_EXTENSIONS = {
+    ".bmp",
+    ".gif",
+    ".jpeg",
+    ".jpg",
+    ".png",
+    ".tif",
+    ".tiff",
+    ".webp",
+}
+
+
+def _ocr_image(image: bytes, source: str) -> list[str]:
+    """Recognize text in one image using the Tesseract command-line program.
+
+    Args:
+        image: Encoded image data to recognize.
+        source: Description of the image, included in the output marker and
+            error messages.
+
+    Returns:
+        OCR text split into lines, preceded by a source marker. Returns an
+        empty list when no text is recognized.
+
+    Raises:
+        RuntimeError: If Tesseract is unavailable, times out, or cannot
+            process the image.
+    """
+    try:
+        result = subprocess.run(
+            ["tesseract", "stdin", "stdout"],
+            input=image,
+            capture_output=True,
+            check=True,
+            timeout=120,
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError(
+            "OCR requires Tesseract; install the tesseract-ocr system package."
+        ) from exc
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"OCR timed out while processing {source}.") from exc
+    except subprocess.CalledProcessError as exc:
+        details = (
+            exc.stderr.decode("utf-8", errors="replace")
+            if isinstance(exc.stderr, bytes)
+            else (exc.stderr or "")
+        ).strip()
+        raise RuntimeError(f"Tesseract could not process {source}. {details}") from exc
+
+    text = result.stdout.decode("utf-8", errors="replace").strip()
+    if not text:
+        return []
+    return [f"[OCR: {source}]", *text.splitlines()]
+
+
+def _extract_ooxml_images(archive: zipfile.ZipFile, use_ocr: bool) -> list[str]:
+    """OCR embedded images stored in an OOXML package's media directories.
+
+    Args:
+        archive: Open OOXML package containing the document's media assets.
+        use_ocr: Whether to run OCR on the embedded images.
+
+    Returns:
+        OCR text lines from supported images, or an empty list when OCR is
+        disabled or no text is recognized.
+
+    Raises:
+        RuntimeError: If OCR cannot be completed by Tesseract.
+        zipfile.BadZipFile: If an embedded image cannot be read from the
+            package.
+    """
+    if not use_ocr:
+        return []
+
+    media_prefixes = ("word/media/", "ppt/media/", "xl/media/")
+    lines = []
+    for name in archive.namelist():
+        if (
+            name.startswith(media_prefixes)
+            and Path(name).suffix.lower() in OCR_IMAGE_EXTENSIONS
+        ):
+            lines.extend(_ocr_image(archive.read(name), name))
+    return lines
+
+
+def _extract_odf_images(path: Path, use_ocr: bool) -> list[str]:
+    """OCR embedded images stored in an OpenDocument package.
+
+    Args:
+        path: OpenDocument file whose `Pictures/` assets should be inspected.
+        use_ocr: Whether to run OCR on the embedded images.
+
+    Returns:
+        OCR text lines from supported images, or an empty list when OCR is
+        disabled or no text is recognized.
+
+    Raises:
+        RuntimeError: If OCR cannot be completed by Tesseract.
+        zipfile.BadZipFile: If the document is not a valid ZIP package or an
+            embedded image cannot be read.
+    """
+    if not use_ocr:
+        return []
+
+    lines = []
+    with zipfile.ZipFile(path) as archive:
+        for name in archive.namelist():
+            if (
+                name.startswith("Pictures/")
+                and Path(name).suffix.lower() in OCR_IMAGE_EXTENSIONS
+            ):
+                lines.extend(_ocr_image(archive.read(name), name))
+    return lines
 
 
 def _extract_ooxml_paragraph_text(
@@ -495,26 +609,101 @@ def extract_pdf_text_pymupdf(path: Path) -> list[str]:
     return lines
 
 
-def extract_pdf_text(path: Path) -> list[str]:
+def _extract_pdf_ocr(path: Path, min_text: int) -> list[str]:
+    """OCR embedded PDF images, or whole pages when extracted text is sparse.
+
+    Args:
+        path: PDF file to inspect.
+        min_text: Minimum total character count of extracted page text.
+            When the document contains fewer characters, OCR each whole page;
+            otherwise OCR embedded images only.
+
+    Returns:
+        OCR text lines for the selected page images.
+
+    Raises:
+        RuntimeError: If PyMuPDF or Tesseract is unavailable, or OCR cannot
+            process an image.
+    """
+    try:
+        import pymupdf
+    except ImportError as exc:
+        raise RuntimeError(
+            "PDF OCR support requires PyMuPDF: python -m pip install pymupdf"
+        ) from exc
+
+    lines: list[str] = []
+    with pymupdf.open(path) as document:
+        pages = list(document)
+        text_length = sum(
+            len((page.get_text("text") or "").strip()) for page in pages
+        )
+        if text_length < min_text:
+            for page_number, page in enumerate(pages, start=1):
+                pixmap = page.get_pixmap(
+                    matrix=pymupdf.Matrix(300 / 72, 300 / 72),
+                    alpha=False,
+                )
+                lines.extend(
+                    _ocr_image(
+                        pixmap.tobytes("png"),
+                        f"PDF page {page_number}",
+                    )
+                )
+            return lines
+
+        seen_images: set[int] = set()
+        for page_number, page in enumerate(pages, start=1):
+            for image_info in page.get_images(full=True):
+                xref = image_info[0]
+                if xref in seen_images:
+                    continue
+                seen_images.add(xref)
+                extracted = document.extract_image(xref)
+                lines.extend(
+                    _ocr_image(
+                        extracted["image"],
+                        f"PDF page {page_number}, image {xref}",
+                    )
+                )
+
+    return lines
+
+
+def extract_pdf_text(
+    path: Path, *, use_ocr: bool = False, ocr_min_text: int = 100
+) -> list[str]:
     """Extract PDF text, preferring PyMuPDF and falling back to pypdf.
 
     Args:
         path: PDF file to read.
+        use_ocr: Whether to OCR embedded images and pages with sparse text.
+        ocr_min_text: Minimum extracted page-text character count before
+            falling back to whole-page OCR.
 
     Returns:
         Extracted text as lines, with a page marker before each page's text.
+
+    Raises:
+        RuntimeError: If OCR is enabled and PyMuPDF or Tesseract cannot process
+            the document.
     """
     try:
-        return extract_pdf_text_pymupdf(path)
+        lines = extract_pdf_text_pymupdf(path)
     except Exception:
-        return extract_pdf_text_pypdf(path)
+        lines = extract_pdf_text_pypdf(path)
+
+    if use_ocr:
+        lines.extend(_extract_pdf_ocr(path, ocr_min_text))
+    return lines
 
 
-def extract_doc_text(path: Path) -> list[str]:
+def extract_doc_text(path: Path, *, use_ocr: bool = False) -> list[str]:
     """Extract a legacy Word `.doc`, converting it when LibreOffice is available.
 
     Args:
         path: Legacy Word document to read.
+        use_ocr: Whether to OCR embedded images. Requires LibreOffice.
 
     Returns:
         Extracted document content split into lines.
@@ -525,7 +714,14 @@ def extract_doc_text(path: Path) -> list[str]:
     """
     if shutil.which("libreoffice"):
         with _convert_with_libreoffice(path, "docx") as converted:
+            if use_ocr:
+                return extract_docx_text(converted, use_ocr=True)
             return extract_docx_text(converted)
+
+    if use_ocr:
+        raise RuntimeError(
+            "OCR of embedded images in .doc files requires LibreOffice."
+        )
 
     try:
         result = subprocess.run(
@@ -549,18 +745,20 @@ def extract_doc_text(path: Path) -> list[str]:
     return result.stdout.splitlines()
 
 
-def extract_docx_text(path: Path) -> list[str]:
+def extract_docx_text(path: Path, *, use_ocr: bool = False) -> list[str]:
     """Extract content and core properties from a Word `.docx` document.
 
     Args:
         path: Word document to read.
+        use_ocr: Whether to OCR embedded images.
 
     Returns:
         Paragraph contents from the body, tables, frames, headers, footers,
         footnotes, endnotes, and comments, followed by metadata and hyperlinks.
 
     Raises:
-        RuntimeError: If python-docx is unavailable.
+        RuntimeError: If python-docx is unavailable or OCR cannot be completed
+            by Tesseract.
         Exception: If the document cannot be opened or parsed.
     """
     try:
@@ -589,21 +787,24 @@ def extract_docx_text(path: Path) -> list[str]:
         )
         lines.extend(_extract_ooxml_hyperlinks(archive))
         lines.extend(_extract_ooxml_metadata(archive))
+        lines.extend(_extract_ooxml_images(archive, use_ocr))
 
     return lines
 
 
-def extract_pptx_text(path: Path) -> list[str]:
+def extract_pptx_text(path: Path, *, use_ocr: bool = False) -> list[str]:
     """Extract slide text, tables, notes, comments, hyperlinks, and metadata.
 
     Args:
         path: PowerPoint `.pptx` file to read.
+        use_ocr: Whether to OCR embedded images.
 
     Returns:
         Slide text, tables, notes, comments, hyperlinks, and metadata as lines.
 
     Raises:
-        RuntimeError: If python-pptx is unavailable.
+        RuntimeError: If python-pptx is unavailable or OCR cannot be completed
+            by Tesseract.
     """
     try:
         from pptx import Presentation
@@ -672,11 +873,12 @@ def extract_pptx_text(path: Path) -> list[str]:
         lines.extend(_extract_ooxml_comments(archive))
         lines.extend(_extract_ooxml_hyperlinks(archive))
         lines.extend(_extract_ooxml_metadata(archive))
+        lines.extend(_extract_ooxml_images(archive, use_ocr))
 
     return lines
 
 
-def extract_ppt_text(path: Path) -> list[str]:
+def extract_ppt_text(path: Path, *, use_ocr: bool = False) -> list[str]:
     """Convert a legacy `.ppt` presentation and extract its text.
 
     LibreOffice performs the conversion because python-pptx reads only the
@@ -684,14 +886,18 @@ def extract_ppt_text(path: Path) -> list[str]:
 
     Args:
         path: Legacy PowerPoint presentation to convert.
+        use_ocr: Whether to OCR embedded images in the converted presentation.
 
     Returns:
         Slide text, tables, notes, comments, hyperlinks, and metadata as lines.
 
     Raises:
-        RuntimeError: If LibreOffice is missing, conversion fails, or times out.
+        RuntimeError: If LibreOffice is missing, conversion fails or times out,
+            or OCR cannot be completed by Tesseract.
     """
     with _convert_with_libreoffice(path, "pptx") as converted:
+        if use_ocr:
+            return extract_pptx_text(converted, use_ocr=True)
         return extract_pptx_text(converted)
 
 
@@ -837,33 +1043,42 @@ def _read_odf_parts(path: Path) -> tuple[bytes, bytes | None]:
     return content, metadata
 
 
-def extract_odf_text(path: Path) -> list[str]:
+def extract_odf_text(path: Path, *, use_ocr: bool = False) -> list[str]:
     """Extract text and metadata from an OpenDocument text or presentation.
 
     Args:
         path: OpenDocument Text or Presentation file containing `content.xml`.
+        use_ocr: Whether to OCR embedded images.
 
     Returns:
         Paragraph text, including tables, notes, comments, and text frames,
         followed by available document metadata.
 
     Raises:
-        RuntimeError: If the archive does not contain `content.xml`.
+        RuntimeError: If the archive does not contain `content.xml` or OCR
+            cannot be completed by Tesseract.
     """
     content, metadata = _read_odf_parts(path)
     lines = _extract_odf_paragraphs(content)
     lines.extend(_extract_odf_metadata(metadata))
+    lines.extend(_extract_odf_images(path, use_ocr))
     return lines
 
 
-def _extract_xlsx_supplemental_text(path: Path) -> list[str]:
+def _extract_xlsx_supplemental_text(
+    path: Path, *, use_ocr: bool = False
+) -> list[str]:
     """Extract Excel drawing text, comments, hyperlinks, and core properties.
 
     Args:
         path: XLSX package to inspect.
+        use_ocr: Whether to OCR embedded images.
 
     Returns:
         Additional searchable text not included in worksheet cell values.
+
+    Raises:
+        RuntimeError: If OCR cannot be completed by Tesseract.
     """
     lines = []
     with zipfile.ZipFile(path) as archive:
@@ -886,11 +1101,14 @@ def _extract_xlsx_supplemental_text(path: Path) -> list[str]:
         lines.extend(_extract_ooxml_comments(archive))
         lines.extend(_extract_ooxml_hyperlinks(archive))
         lines.extend(_extract_ooxml_metadata(archive))
+        lines.extend(_extract_ooxml_images(archive, use_ocr))
 
     return lines
 
 
-def extract_xlsx_text(path: Path, separator: str = "|") -> list[str]:
+def extract_xlsx_text(
+    path: Path, separator: str = "|", *, use_ocr: bool = False
+) -> list[str]:
     """Extract worksheet rows from an Excel `.xlsx` workbook.
 
     Each output line begins with the sheet name, followed by cell values joined
@@ -899,13 +1117,15 @@ def extract_xlsx_text(path: Path, separator: str = "|") -> list[str]:
     Args:
         path: Workbook to read.
         separator: String used between the sheet name and cell values.
+        use_ocr: Whether to OCR embedded images.
 
     Returns:
         Delimited worksheet rows followed by drawing text, comments,
         hyperlinks, and metadata.
 
     Raises:
-        RuntimeError: If openpyxl is unavailable.
+        RuntimeError: If openpyxl is unavailable or OCR cannot be completed by
+            Tesseract.
     """
     try:
         from openpyxl import load_workbook
@@ -926,16 +1146,19 @@ def extract_xlsx_text(path: Path, separator: str = "|") -> list[str]:
     finally:
         workbook.close()
 
-    lines.extend(_extract_xlsx_supplemental_text(path))
+    lines.extend(_extract_xlsx_supplemental_text(path, use_ocr=use_ocr))
     return lines
 
 
-def extract_xls_text(path: Path, separator: str = "|") -> list[str]:
+def extract_xls_text(
+    path: Path, separator: str = "|", *, use_ocr: bool = False
+) -> list[str]:
     """Extract rows and worksheet names from a legacy Excel `.xls` workbook.
 
     Args:
         path: Workbook to read.
         separator: String used between the sheet name and cell values.
+        use_ocr: Whether to OCR embedded images. Requires LibreOffice.
 
     Returns:
         One delimited string for each worksheet row, with values normalized
@@ -943,7 +1166,8 @@ def extract_xls_text(path: Path, separator: str = "|") -> list[str]:
         hyperlinks, drawing text, and metadata.
 
     Raises:
-        RuntimeError: If xlrd is unavailable.
+        RuntimeError: If xlrd or required LibreOffice support is unavailable,
+            or OCR cannot be completed by Tesseract.
     """
     try:
         import xlrd
@@ -993,12 +1217,23 @@ def extract_xls_text(path: Path, separator: str = "|") -> list[str]:
 
     if shutil.which("libreoffice"):
         with _convert_with_libreoffice(path, "xlsx") as converted:
-            lines.extend(_extract_xlsx_supplemental_text(converted))
+            if use_ocr:
+                lines.extend(
+                    _extract_xlsx_supplemental_text(converted, use_ocr=True)
+                )
+            else:
+                lines.extend(_extract_xlsx_supplemental_text(converted))
+    elif use_ocr:
+        raise RuntimeError(
+            "OCR of embedded images in .xls files requires LibreOffice."
+        )
 
     return lines
 
 
-def extract_ods_text(path: Path, separator: str = "|") -> list[str]:
+def extract_ods_text(
+    path: Path, separator: str = "|", *, use_ocr: bool = False
+) -> list[str]:
     """Extract spreadsheet rows, standalone text, and ODS metadata.
 
     Visible paragraph text takes precedence; typed cell attributes provide a
@@ -1007,12 +1242,14 @@ def extract_ods_text(path: Path, separator: str = "|") -> list[str]:
     Args:
         path: OpenDocument Spreadsheet file to read.
         separator: String used between the sheet name and cell values.
+        use_ocr: Whether to OCR embedded images.
 
     Returns:
         Delimited worksheet rows followed by text outside cells and metadata.
 
     Raises:
-        RuntimeError: If odfpy is unavailable or the archive lacks `content.xml`.
+        RuntimeError: If odfpy is unavailable, the archive lacks `content.xml`,
+            or OCR cannot be completed by Tesseract.
     """
     try:
         from odf.opendocument import load
@@ -1152,11 +1389,14 @@ def extract_ods_text(path: Path, separator: str = "|") -> list[str]:
     content, metadata = _read_odf_parts(path)
     lines.extend(_extract_odf_paragraphs(content, exclude_table_cells=True))
     lines.extend(_extract_odf_metadata(metadata))
+    lines.extend(_extract_odf_images(path, use_ocr))
 
     return lines
 
 
-def extract_text(path: Path) -> list[str]:
+def extract_text(
+    path: Path, *, use_ocr: bool = False, ocr_min_text: int = 100
+) -> list[str]:
     """Dispatch a file to the extractor for its extension.
 
     Supported office and PDF formats use dedicated extractors; other files are
@@ -1164,6 +1404,9 @@ def extract_text(path: Path) -> list[str]:
 
     Args:
         path: File whose text should be extracted.
+        use_ocr: Whether to OCR embedded images in supported document formats.
+        ocr_min_text: Minimum total PDF page-text characters before falling
+            back to whole-page OCR.
 
     Returns:
         Extracted content as a list of lines.
@@ -1172,30 +1415,48 @@ def extract_text(path: Path) -> list[str]:
     suffix = path.suffix.lower()
 
     if suffix == ".pdf":
+        if use_ocr:
+            return extract_pdf_text(path, use_ocr=True, ocr_min_text=ocr_min_text)
         return extract_pdf_text(path)
 
     elif suffix == ".doc":
+        if use_ocr:
+            return extract_doc_text(path, use_ocr=True)
         return extract_doc_text(path)
 
     elif suffix == ".docx":
+        if use_ocr:
+            return extract_docx_text(path, use_ocr=True)
         return extract_docx_text(path)
 
     elif suffix in {".odt", ".odp"}:
+        if use_ocr:
+            return extract_odf_text(path, use_ocr=True)
         return extract_odf_text(path)
 
     elif suffix == ".pptx":
+        if use_ocr:
+            return extract_pptx_text(path, use_ocr=True)
         return extract_pptx_text(path)
 
     elif suffix == ".xlsx":
+        if use_ocr:
+            return extract_xlsx_text(path, use_ocr=True)
         return extract_xlsx_text(path)
 
     elif suffix == ".xls":
+        if use_ocr:
+            return extract_xls_text(path, use_ocr=True)
         return extract_xls_text(path)
 
     elif suffix == ".ods":
+        if use_ocr:
+            return extract_ods_text(path, use_ocr=True)
         return extract_ods_text(path)
 
     elif suffix == ".ppt":
+        if use_ocr:
+            return extract_ppt_text(path, use_ocr=True)
         return extract_ppt_text(path)
 
     else:

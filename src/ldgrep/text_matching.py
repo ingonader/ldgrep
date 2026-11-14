@@ -164,6 +164,8 @@ def search_file(
     matchlen: int | None = None,
     display_name: str | None = None,
     link_path: Path | None = None,
+    use_ocr: bool = False,
+    ocr_min_text: int = 100,
 ) -> int:
     """Extract, search, and print a file's matching lines and context.
 
@@ -181,6 +183,9 @@ def search_file(
         display_name: Optional display path, used for archive members.
         link_path: Optional real file path used as the clickable hyperlink
             target when displaying an archive member.
+        use_ocr: Whether to OCR embedded images in supported document formats.
+        ocr_min_text: Minimum total PDF page-text characters before falling
+            back to whole-page OCR.
 
     Returns:
         Number of matching lines found, or zero if extraction fails or there
@@ -188,7 +193,14 @@ def search_file(
     """
     try:
         # Convert every supported input format to the same list-of-lines representation.
-        lines = extract_text(path)
+        if use_ocr:
+            lines = extract_text(
+                path,
+                use_ocr=True,
+                ocr_min_text=ocr_min_text,
+            )
+        else:
+            lines = extract_text(path)
     except Exception as exc:
         source_name = (
             f"{link_path}!/{display_name}"

@@ -62,6 +62,75 @@ def test_pdf_extractor_falls_back_to_pypdf(monkeypatch) -> None:
     assert text_extraction.extract_pdf_text(sample("moby-dick.pdf")) == expected
 
 
+def test_pdf_ocr_uses_configured_threshold(monkeypatch) -> None:
+    expected = ["[PDF page 1]", "searchable text"]
+    ocr_calls: list[tuple[Path, int]] = []
+    monkeypatch.setattr(
+        text_extraction, "extract_pdf_text_pymupdf", lambda path: expected.copy()
+    )
+
+    def fake_ocr(path: Path, min_text: int) -> list[str]:
+        ocr_calls.append((path, min_text))
+        return ["recognized image text"]
+
+    monkeypatch.setattr(text_extraction, "_extract_pdf_ocr", fake_ocr)
+
+    assert text_extraction.extract_pdf_text(
+        Path("sample.pdf"), use_ocr=True, ocr_min_text=42
+    ) == [*expected, "recognized image text"]
+    assert ocr_calls == [(Path("sample.pdf"), 42)]
+
+
+def test_ooxml_image_ocr_reads_only_embedded_image_files(
+    monkeypatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "document.docx"
+    with zipfile.ZipFile(source, "w") as archive:
+        archive.writestr("word/media/image1.png", b"image bytes")
+        archive.writestr("word/document.xml", b"not an image")
+        archive.writestr("custom/image2.png", b"not embedded media")
+
+    calls: list[tuple[bytes, str]] = []
+
+    def fake_ocr(image: bytes, source: str) -> list[str]:
+        calls.append((image, source))
+        return ["recognized text"]
+
+    monkeypatch.setattr(text_extraction, "_ocr_image", fake_ocr)
+    with zipfile.ZipFile(source) as archive:
+        lines = text_extraction._extract_ooxml_images(archive, use_ocr=True)
+
+    assert lines == ["recognized text"]
+    assert calls == [(b"image bytes", "word/media/image1.png")]
+
+
+def test_ocr_image_invokes_tesseract(monkeypatch) -> None:
+    result = SimpleNamespace(stdout=b"recognized text\n")
+    calls: list[tuple[list[str], dict[str, object]]] = []
+
+    def fake_run(command: list[str], **kwargs: object) -> SimpleNamespace:
+        calls.append((command, kwargs))
+        return result
+
+    monkeypatch.setattr(text_extraction.subprocess, "run", fake_run)
+
+    assert text_extraction._ocr_image(b"image bytes", "image.png") == [
+        "[OCR: image.png]",
+        "recognized text",
+    ]
+    assert calls == [
+        (
+            ["tesseract", "stdin", "stdout"],
+            {
+                "input": b"image bytes",
+                "capture_output": True,
+                "check": True,
+                "timeout": 120,
+            },
+        )
+    ]
+
+
 @pytest.mark.parametrize(
     ("filename", "expected_text"),
     [
@@ -249,6 +318,43 @@ def test_extract_text_matches_extension_case_insensitively(tmp_path: Path) -> No
 
     # Uppercase suffixes should use the same plain-text path as lowercase ones.
     assert text_extraction.extract_text(path) == ["plain text"]
+
+
+@pytest.mark.parametrize(
+    ("suffix", "extractor_name"),
+    [
+        (".pdf", "extract_pdf_text"),
+        (".doc", "extract_doc_text"),
+        (".docx", "extract_docx_text"),
+        (".ppt", "extract_ppt_text"),
+        (".pptx", "extract_pptx_text"),
+        (".xls", "extract_xls_text"),
+        (".xlsx", "extract_xlsx_text"),
+        (".odt", "extract_odf_text"),
+        (".odp", "extract_odf_text"),
+        (".ods", "extract_ods_text"),
+    ],
+)
+def test_extract_text_passes_ocr_to_supported_formats(
+    monkeypatch, suffix: str, extractor_name: str
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    def fake_extractor(path: Path, **kwargs: object) -> list[str]:
+        calls.append(kwargs)
+        return ["recognized text"]
+
+    monkeypatch.setattr(text_extraction, extractor_name, fake_extractor)
+
+    result = text_extraction.extract_text(
+        Path(f"sample{suffix}"), use_ocr=True, ocr_min_text=42
+    )
+
+    assert result == ["recognized text"]
+    expected = {"use_ocr": True}
+    if suffix == ".pdf":
+        expected["ocr_min_text"] = 42
+    assert calls == [expected]
 
 
 @pytest.mark.parametrize(

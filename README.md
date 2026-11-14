@@ -93,6 +93,13 @@ uvx ldgrep -a 'search pattern' ./downloads
 
 Use single quotes around patterns containing shell metacharacters such as `|`, `*`, parentheses, or spaces so the shell passes the complete regular expression to `ldgrep`. Expressions use Python's regular-expression syntax.
 
+Enable OCR for embedded images in supported Office and OpenDocument files and
+PDFs with `--ocr`. PDF pages are OCRed when their extracted text is shorter
+than 100 characters by default; change this threshold with
+`--ocr-min-text CHARS`. OCR is disabled unless `--ocr` is specified and
+requires the Tesseract executable. OCR for legacy `.doc`, `.ppt`, and `.xls`
+files also requires LibreOffice.
+
 ## Command-line options
 
 Run `ldgrep --help` (or `uvx ldgrep --help`) to see the options in the terminal.
@@ -103,6 +110,8 @@ Run `ldgrep --help` (or `uvx ldgrep --help`) to see the options in the terminal.
 | `PATH ...` |  | Optional. One or more files or directories. Directories are searched recursively. Defaults to the current directory (`.`). |
 | `--ignore-case` | `-i` | Ignore case in the content pattern, file-name pattern, and directory-exclusion patterns. |
 | `--include-archives` | `-a` | Also search supported archive files found at the given paths. Ordinary files are searched first. |
+| `--ocr` |  | Use Tesseract to extract text from embedded images in Office, OpenDocument, and PDF files. For PDFs, OCR whole pages when extracted page text is below the configured threshold. |
+| `--ocr-min-text CHARS` |  | With `--ocr`, OCR all PDF pages when the total extracted page text contains fewer than this many characters. Default: `100`; must be non-negative. |
 | `--before-context N` | `-B N` | Print up to `N` lines before each matching line. Default: `0`. |
 | `--after-context N` | `-A N` | Print up to `N` lines after each matching line. Default: `0`. |
 | `--context N` | `-C N` | Print up to `N` lines before and after each match. This overrides `-A` and `-B` if they are also supplied. |
@@ -138,10 +147,12 @@ Other files selected by extension are read as UTF-8 text; invalid byte sequences
 
 Most document formats are handled by Python packages installed with `ldgrep`. Legacy formats use additional system programs where available:
 
+* OCR requires the Tesseract executable (on Debian or Ubuntu: `sudo apt install tesseract-ocr`).
 * `.doc` files use LibreOffice for rich extraction when available; without it, `antiword` provides basic document text (on Debian or Ubuntu: `sudo apt install antiword`).
 * `.ppt` files require LibreOffice Impress (on Debian or Ubuntu:
   `sudo apt install libreoffice-impress`).
 * `.xls` files use LibreOffice when available to extract comments, drawing text, and metadata in addition to worksheet data.
+* OCR of embedded images in legacy `.doc`, `.ppt`, and `.xls` files requires LibreOffice.
 
 
 

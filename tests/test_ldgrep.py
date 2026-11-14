@@ -53,6 +53,10 @@ def _prepare_cli(monkeypatch: pytest.MonkeyPatch, *args: str) -> None:
         ),
         (["needle", "input", "-B", "-1"], "Context values must be non-negative"),
         (["needle", "input", "-l", "0"], "Match length must be a positive integer"),
+        (
+            ["needle", "input", "--ocr-min-text", "-1"],
+            "OCR minimum text threshold must be non-negative",
+        ),
     ],
 )
 def test_run_rejects_invalid_arguments(
@@ -157,6 +161,32 @@ def test_run_searches_ordinary_files_with_parsed_options(
     captured = capsys.readouterr()
     assert "Searching 2 files... (not searching archives)" in captured.out
     assert "Searched 2 files (archives excluded by user)." in captured.out
+
+
+def test_run_passes_ocr_options_to_search(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    file_path = tmp_path / "scan.pdf"
+    search_options: list[dict[str, object]] = []
+    _prepare_cli(
+        monkeypatch,
+        "needle",
+        str(file_path),
+        "--ocr",
+        "--ocr-min-text",
+        "42",
+    )
+    monkeypatch.setattr(ldgrep, "collect_files", lambda *args: [file_path])
+
+    def fake_search(*args, **kwargs) -> int:
+        search_options.append(kwargs)
+        return 1
+
+    monkeypatch.setattr(ldgrep, "search_file", fake_search)
+
+    assert ldgrep._run() == 0
+    assert search_options == [{"use_ocr": True, "ocr_min_text": 42}]
 
 
 def test_run_clears_completed_progress_line(

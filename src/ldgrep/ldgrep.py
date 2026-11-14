@@ -170,6 +170,26 @@ def _run() -> int:
     )
 
     parser.add_argument(
+        "--ocr",
+        action="store_true",
+        help=(
+            "Use Tesseract OCR for embedded images in supported Office and "
+            "OpenDocument files, and PDFs."
+        ),
+    )
+
+    parser.add_argument(
+        "--ocr-min-text",
+        type=int,
+        default=100,
+        metavar="CHARS",
+        help=(
+            "For PDFs, OCR whole pages when the total extracted page text "
+            + "contains fewer than CHARS characters. Default: 100."
+        ),
+    )
+
+    parser.add_argument(
         "-B",
         "--before-context",
         type=int,
@@ -319,6 +339,9 @@ def _run() -> int:
     if args.matchlen is not None and args.matchlen < 1:
         parser.error("Match length must be a positive integer")
 
+    if args.ocr_min_text < 0:
+        parser.error("OCR minimum text threshold must be non-negative")
+
     # Compile all expressions up front so invalid patterns fail before searching.
     try:
         pattern = compile_search_pattern(args.pattern, args.ignore_case)
@@ -424,6 +447,9 @@ def _run() -> int:
     print(f"Searching {files_total} files...{archive_note}")
 
     total_matches = 0
+    ocr_options = (
+        {"use_ocr": True, "ocr_min_text": args.ocr_min_text} if args.ocr else {}
+    )
 
     # Search ordinary files first, updating progress after each completed file.
     for path in files:
@@ -435,6 +461,7 @@ def _run() -> int:
             red,
             reset,
             args.matchlen,
+            **ocr_options,
         )
         files_searched += 1
         show_search_progress(
@@ -486,6 +513,7 @@ def _run() -> int:
                             args.matchlen,
                             display_name=member_name,
                             link_path=archive_path,
+                            **ocr_options,
                         )
                     except Exception as exc:
                         print_error(f"\nWarning: cannot read {display_name}: {exc}")
