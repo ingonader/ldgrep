@@ -190,6 +190,17 @@ def _run() -> int:
     )
 
     parser.add_argument(
+        "--ocr-lang",
+        type=str,
+        default="eng+deu",
+        metavar="LANG",
+        help=(
+            "Tesseract language code(s), joined with '+'. "
+            + "Default: eng+deu."
+        ),
+    )
+
+    parser.add_argument(
         "-B",
         "--before-context",
         type=int,
@@ -448,7 +459,13 @@ def _run() -> int:
 
     total_matches = 0
     ocr_options = (
-        {"use_ocr": True, "ocr_min_text": args.ocr_min_text} if args.ocr else {}
+        {
+            "use_ocr": True,
+            "ocr_min_text": args.ocr_min_text,
+            "ocr_lang": args.ocr_lang,
+        }
+        if args.ocr
+        else {}
     )
 
     # Search ordinary files first, updating progress after each completed file.

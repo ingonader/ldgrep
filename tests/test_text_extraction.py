@@ -62,23 +62,26 @@ def test_pdf_extractor_falls_back_to_pypdf(monkeypatch) -> None:
     assert text_extraction.extract_pdf_text(sample("moby-dick.pdf")) == expected
 
 
-def test_pdf_ocr_uses_configured_threshold(monkeypatch) -> None:
+def test_pdf_ocr_uses_configured_threshold_and_language(monkeypatch) -> None:
     expected = ["[PDF page 1]", "searchable text"]
-    ocr_calls: list[tuple[Path, int]] = []
+    ocr_calls: list[tuple[Path, int, str]] = []
     monkeypatch.setattr(
         text_extraction, "extract_pdf_text_pymupdf", lambda path: expected.copy()
     )
 
-    def fake_ocr(path: Path, min_text: int) -> list[str]:
-        ocr_calls.append((path, min_text))
+    def fake_ocr(path: Path, min_text: int, ocr_lang: str) -> list[str]:
+        ocr_calls.append((path, min_text, ocr_lang))
         return ["recognized image text"]
 
     monkeypatch.setattr(text_extraction, "_extract_pdf_ocr", fake_ocr)
 
     assert text_extraction.extract_pdf_text(
-        Path("sample.pdf"), use_ocr=True, ocr_min_text=42
+        Path("sample.pdf"),
+        use_ocr=True,
+        ocr_min_text=42,
+        ocr_lang="deu+eng",
     ) == [*expected, "recognized image text"]
-    assert ocr_calls == [(Path("sample.pdf"), 42)]
+    assert ocr_calls == [(Path("sample.pdf"), 42, "deu+eng")]
 
 
 def test_ooxml_image_ocr_reads_only_embedded_image_files(
@@ -90,18 +93,20 @@ def test_ooxml_image_ocr_reads_only_embedded_image_files(
         archive.writestr("word/document.xml", b"not an image")
         archive.writestr("custom/image2.png", b"not embedded media")
 
-    calls: list[tuple[bytes, str]] = []
+    calls: list[tuple[bytes, str, str]] = []
 
-    def fake_ocr(image: bytes, source: str) -> list[str]:
-        calls.append((image, source))
+    def fake_ocr(image: bytes, source: str, ocr_lang: str) -> list[str]:
+        calls.append((image, source, ocr_lang))
         return ["recognized text"]
 
     monkeypatch.setattr(text_extraction, "_ocr_image", fake_ocr)
     with zipfile.ZipFile(source) as archive:
-        lines = text_extraction._extract_ooxml_images(archive, use_ocr=True)
+        lines = text_extraction._extract_ooxml_images(
+            archive, use_ocr=True, ocr_lang="deu"
+        )
 
     assert lines == ["recognized text"]
-    assert calls == [(b"image bytes", "word/media/image1.png")]
+    assert calls == [(b"image bytes", "word/media/image1.png", "deu")]
 
 
 def test_ocr_image_invokes_tesseract(monkeypatch) -> None:
@@ -114,13 +119,15 @@ def test_ocr_image_invokes_tesseract(monkeypatch) -> None:
 
     monkeypatch.setattr(text_extraction.subprocess, "run", fake_run)
 
-    assert text_extraction._ocr_image(b"image bytes", "image.png") == [
+    assert text_extraction._ocr_image(
+        b"image bytes", "image.png", lang="deu+eng"
+    ) == [
         "[OCR: image.png]",
         "recognized text",
     ]
     assert calls == [
         (
-            ["tesseract", "stdin", "stdout"],
+            ["tesseract", "stdin", "stdout", "-l", "deu+eng"],
             {
                 "input": b"image bytes",
                 "capture_output": True,
@@ -347,11 +354,14 @@ def test_extract_text_passes_ocr_to_supported_formats(
     monkeypatch.setattr(text_extraction, extractor_name, fake_extractor)
 
     result = text_extraction.extract_text(
-        Path(f"sample{suffix}"), use_ocr=True, ocr_min_text=42
+        Path(f"sample{suffix}"),
+        use_ocr=True,
+        ocr_min_text=42,
+        ocr_lang="deu+eng",
     )
 
     assert result == ["recognized text"]
-    expected = {"use_ocr": True}
+    expected = {"use_ocr": True, "ocr_lang": "deu+eng"}
     if suffix == ".pdf":
         expected["ocr_min_text"] = 42
     assert calls == [expected]

@@ -163,9 +163,18 @@ def test_run_searches_ordinary_files_with_parsed_options(
     assert "Searched 2 files (archives excluded by user)." in captured.out
 
 
+@pytest.mark.parametrize(
+    ("language_args", "expected_language"),
+    [
+        ([], "eng+deu"),
+        (["--ocr-lang", "deu+eng"], "deu+eng"),
+    ],
+)
 def test_run_passes_ocr_options_to_search(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    language_args: list[str],
+    expected_language: str,
 ) -> None:
     file_path = tmp_path / "scan.pdf"
     search_options: list[dict[str, object]] = []
@@ -176,6 +185,7 @@ def test_run_passes_ocr_options_to_search(
         "--ocr",
         "--ocr-min-text",
         "42",
+        *language_args,
     )
     monkeypatch.setattr(ldgrep, "collect_files", lambda *args: [file_path])
 
@@ -186,7 +196,13 @@ def test_run_passes_ocr_options_to_search(
     monkeypatch.setattr(ldgrep, "search_file", fake_search)
 
     assert ldgrep._run() == 0
-    assert search_options == [{"use_ocr": True, "ocr_min_text": 42}]
+    assert search_options == [
+        {
+            "use_ocr": True,
+            "ocr_min_text": 42,
+            "ocr_lang": expected_language,
+        }
+    ]
 
 
 def test_run_clears_completed_progress_line(

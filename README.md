@@ -98,7 +98,9 @@ PDFs with `--ocr`. PDF pages are OCRed when their extracted text is shorter
 than 100 characters by default; change this threshold with
 `--ocr-min-text CHARS`. OCR is disabled unless `--ocr` is specified and
 requires the Tesseract executable. OCR for legacy `.doc`, `.ppt`, and `.xls`
-files also requires LibreOffice.
+files also requires LibreOffice. The default OCR languages are English and
+German; use `--ocr-lang LANG` (for example, `eng` or `eng+fra`) to select
+installed Tesseract language data.
 
 ## Command-line options
 
@@ -112,6 +114,7 @@ Run `ldgrep --help` (or `uvx ldgrep --help`) to see the options in the terminal.
 | `--include-archives` | `-a` | Also search supported archive files found at the given paths. Ordinary files are searched first. |
 | `--ocr` |  | Use Tesseract to extract text from embedded images in Office, OpenDocument, and PDF files. For PDFs, OCR whole pages when extracted page text is below the configured threshold. |
 | `--ocr-min-text CHARS` |  | With `--ocr`, OCR all PDF pages when the total extracted page text contains fewer than this many characters. Default: `100`; must be non-negative. |
+| `--ocr-lang LANG` |  | Tesseract language code(s), joined with `+` (for example, `eng+deu`). Default: `eng+deu`. |
 | `--before-context N` | `-B N` | Print up to `N` lines before each matching line. Default: `0`. |
 | `--after-context N` | `-A N` | Print up to `N` lines after each matching line. Default: `0`. |
 | `--context N` | `-C N` | Print up to `N` lines before and after each match. This overrides `-A` and `-B` if they are also supplied. |
@@ -147,7 +150,7 @@ Other files selected by extension are read as UTF-8 text; invalid byte sequences
 
 Most document formats are handled by Python packages installed with `ldgrep`. Legacy formats use additional system programs where available:
 
-* OCR requires the Tesseract executable (on Debian or Ubuntu: `sudo apt install tesseract-ocr`).
+* OCR requires Tesseract and the selected language data (on Debian or Ubuntu for the default English and German languages: `sudo apt install tesseract-ocr tesseract-ocr-deu`).
 * `.doc` files use LibreOffice for rich extraction when available; without it, `antiword` provides basic document text (on Debian or Ubuntu: `sudo apt install antiword`).
 * `.ppt` files require LibreOffice Impress (on Debian or Ubuntu:
   `sudo apt install libreoffice-impress`).

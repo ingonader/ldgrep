@@ -166,6 +166,7 @@ def search_file(
     link_path: Path | None = None,
     use_ocr: bool = False,
     ocr_min_text: int = 100,
+    ocr_lang: str = "eng+deu",
 ) -> int:
     """Extract, search, and print a file's matching lines and context.
 
@@ -186,6 +187,7 @@ def search_file(
         use_ocr: Whether to OCR embedded images in supported document formats.
         ocr_min_text: Minimum total PDF page-text characters before falling
             back to whole-page OCR.
+        ocr_lang: Tesseract language code or `+`-separated language codes.
 
     Returns:
         Number of matching lines found, or zero if extraction fails or there
@@ -198,6 +200,7 @@ def search_file(
                 path,
                 use_ocr=True,
                 ocr_min_text=ocr_min_text,
+                ocr_lang=ocr_lang,
             )
         else:
             lines = extract_text(path)
