@@ -91,16 +91,27 @@ Enable archive searching with `-a`:
 uvx ldgrep -a 'search pattern' ./downloads
 ```
 
+Search text in standalone image files (image OCR is automatic):
+
+```bash
+uvx ldgrep -e images 'search pattern' ./scans
+```
+
+`images`, `allimg`, and `allimages` are equivalent pseudo-extensions that
+select all supported image types. Individual image extensions can also be
+selected, such as `-e png,jpg`.
+
 Use single quotes around patterns containing shell metacharacters such as `|`, `*`, parentheses, or spaces so the shell passes the complete regular expression to `ldgrep`. Expressions use Python's regular-expression syntax.
 
 Enable OCR for embedded images in supported Office and OpenDocument files and
 PDFs with `--ocr`. PDF pages are OCRed when their extracted text is shorter
 than 100 characters by default; change this threshold with
-`--ocr-min-text CHARS`. OCR is disabled unless `--ocr` is specified and
-requires the Tesseract executable. OCR for legacy `.doc`, `.ppt`, and `.xls`
-files also requires LibreOffice. The default OCR languages are English and
-German; use `--ocr-lang LANG` (for example, `eng` or `eng+fra`) to select
-installed Tesseract language data.
+`--ocr-min-text CHARS`. This flag controls OCR inside documents; standalone
+image files selected with `-e` are always OCRed. OCR requires the Tesseract
+executable. OCR for legacy `.doc`, `.ppt`, and `.xls` files also requires
+LibreOffice. The default OCR languages are English and German; use
+`--ocr-lang LANG` (for example, `eng` or `eng+fra`) to select installed
+Tesseract language data.
 
 ## Command-line options
 
@@ -112,14 +123,14 @@ Run `ldgrep --help` (or `uvx ldgrep --help`) to see the options in the terminal.
 | `PATH ...` |  | Optional. One or more files or directories. Directories are searched recursively. Defaults to the current directory (`.`). |
 | `--ignore-case` | `-i` | Ignore case in the content pattern, file-name pattern, and directory-exclusion patterns. |
 | `--include-archives` | `-a` | Also search supported archive files found at the given paths. Ordinary files are searched first. |
-| `--ocr` |  | Use Tesseract to extract text from embedded images in Office, OpenDocument, and PDF files. For PDFs, OCR whole pages when extracted page text is below the configured threshold. |
+| `--ocr` |  | Use Tesseract to extract text from embedded images in Office and OpenDocument files, and PDFs. Standalone images selected with `-e` are OCRed automatically. For PDFs, OCR whole pages when extracted page text is below the configured threshold. |
 | `--ocr-min-text CHARS` |  | With `--ocr`, OCR all PDF pages when the total extracted page text contains fewer than this many characters. Default: `100`; must be non-negative. |
 | `--ocr-lang LANG` |  | Tesseract language code(s), joined with `+` (for example, `eng+deu`). Default: `eng+deu`. |
 | `--before-context N` | `-B N` | Print up to `N` lines before each matching line. Default: `0`. |
 | `--after-context N` | `-A N` | Print up to `N` lines after each matching line. Default: `0`. |
 | `--context N` | `-C N` | Print up to `N` lines before and after each match. This overrides `-A` and `-B` if they are also supplied. |
 | `--matchlen N` | `-l N` | Limit displayed line excerpts to approximately `N` characters, centered on each match. A match longer than this value is kept whole. Context-only lines are shortened from the beginning. Must be a positive integer. |
-| `--ext REGEXES` | `-e REGEXES` | Comma-separated regular expressions full-matched against file suffixes, with or without the leading dot. For example, `txt,md` selects `.txt` and `.md`, `py|js` selects `.py` and `.js`, and `docx?` selects `.doc` and `.docx`. By default the searched extensions are `txt,md,pdf,docx,odt,odp,pptx`. Specifying this option replaces the defaults; prefix it with `+` (for example, `+py,R,sh`) to add patterns while keeping the defaults, or `^` (for example, `^pdf,docx`) to remove matching extensions from the defaults. An empty entry selects files without an extension; `,` searches only extensionless files, while `py,` searches `.py` and extensionless files. |
+| `--ext REGEXES` | `-e REGEXES` | Comma-separated regular expressions full-matched against file suffixes, with or without the leading dot. For example, `txt,md` selects `.txt` and `.md`, `py|js` selects `.py` and `.js`, and `docx?` selects `.doc` and `.docx`. Use `allimg`, `images`, or `allimages` to select all supported image types; image extensions are not included by default. By default the searched extensions are `txt,md,pdf,docx,odt,odp,pptx`. Specifying this option replaces the defaults; prefix it with `+` (for example, `+py,R,sh`) to add patterns while keeping the defaults, or `^` (for example, `^pdf,docx`) to remove matching extensions from the defaults. An empty entry selects files without an extension; `,` searches only extensionless files, while `py,` searches `.py` and extensionless files. |
 | `--filename REGEX` | `-f REGEX` | Search only files whose name without its extension matches this regular expression. For archives, the archive suffix is removed before testing; archive members are filtered by their member-name stem. |
 | `--exclude REGEXES` | `-x REGEXES` | Comma-separated regular expressions matched against relative directory paths (commas cannot appear inside an expression). Matching directories and all their contents are excluded, including archive members. By default, `/.git/`, `/.svn/`, `/.hg/`, `/__pycache__/`, `/.pytest_cache/`, `/.mypy_cache/`, `/.ruff_cache/`, `/.tox/`, `/.nox/`, `/node_modules/`, `/.venv/`, `/venv/`, `/virtualenv/`, `/renv/library/`, `/renv/sandbox/`, `/.next/`, `/.nuxt/`, `/.terraform/`, `/target/`, and `/.gradle/` are excluded. Specifying patterns replaces the defaults; prefix with `+` to add patterns to them, or `^` to remove matching defaults (for example, `-x '^renv,venv'` will remove both `renv` defaults `/renv/library`/ and `/renv/sandbox/`and both `venv` defaults `/venv/` and `/.venv/`). Paths excluded during discovery are summarized in the output. |
 | `--sort KEY[ r]` |  | Sort ordinary files and archives before searching. `a` sorts alphabetically by fully resolved path; `c` sorts by change time; `t` by modification time (default); `u` by last access time. Time sorts place newest files first. Add `r` to reverse the selected order, e.g. `--sort tr` searches oldest-modified files first. `--sort r` reverses alphabetical order. |
@@ -145,6 +156,12 @@ The following document formats have dedicated text extraction:
 | `.xls` | Legacy Excel rows and hyperlinks; LibreOffice adds comments, drawing text, and core metadata. |
 | `.ods` | Spreadsheet rows, visible cell text and stored values, text outside cells, hyperlinks, and document metadata. |
 | `.odt`, `.odp` | Text and headings, including tables, frames, notes, comments, and hyperlink URLs, plus document metadata. |
+
+Standalone images can be searched using Tesseract automatically when selected.
+Supported image extensions are `.bmp`, `.gif`, `.jpeg`, `.jpg`, `.png`, `.tif`,
+`.tiff`, and `.webp`; they are not searched by default. Select individual types
+with `-e` (for example, `-e png,jpg`) or all image types with `-e images`,
+`-e allimg`, or `-e allimages`.
 
 Other files selected by extension are read as UTF-8 text; invalid byte sequences are replaced. The default extension set is intentionally narrower than the formats supported by the extractors: `.doc`, `.ppt`, and `.xls` must be explicitly selected with `-e doc`, `-e ppt`, or `-e xls`.
 

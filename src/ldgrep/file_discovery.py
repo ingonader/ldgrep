@@ -14,6 +14,17 @@ from .archive_handling import (
     sort_paths,
 )
 
+SUPPORTED_IMAGE_EXTENSIONS = {
+    ".bmp",
+    ".gif",
+    ".jpeg",
+    ".jpg",
+    ".png",
+    ".tif",
+    ".tiff",
+    ".webp",
+}
+
 SUPPORTED_EXTENSIONS = {
     ".txt",
     ".md",
@@ -27,7 +38,7 @@ SUPPORTED_EXTENSIONS = {
     ".xlsx",
     ".xls",
     ".ods",
-}
+} | SUPPORTED_IMAGE_EXTENSIONS
 
 DEFAULT_EXTENSIONS = {
     ".txt",
@@ -40,6 +51,38 @@ DEFAULT_EXTENSIONS = {
 }
 
 VALID_FORMATS = {extension.lstrip(".") for extension in SUPPORTED_EXTENSIONS}
+IMAGE_EXTENSION_ALIASES = {"allimg", "images", "allimages"}
+
+
+def _expand_image_extension_aliases(extension_spec: str | None) -> str | None:
+    """Replace image pseudo-extensions with the supported image extensions.
+
+    Args:
+        extension_spec: Optional comma-separated extension specification,
+            possibly prefixed with `+` or `^`.
+
+    Returns:
+        The specification with `allimg`, `images`, and `allimages` expanded
+        to the supported image extensions.
+    """
+    if extension_spec is None:
+        return None
+
+    modifier = extension_spec[:1] if extension_spec.startswith(("+", "^")) else ""
+    patterns = extension_spec[len(modifier) :].split(",")
+    expanded_patterns = []
+    image_extensions = [
+        extension.removeprefix(".")
+        for extension in sorted(SUPPORTED_IMAGE_EXTENSIONS)
+    ]
+
+    for pattern in patterns:
+        if pattern.strip().casefold() in IMAGE_EXTENSION_ALIASES:
+            expanded_patterns.extend(image_extensions)
+        else:
+            expanded_patterns.append(pattern)
+
+    return modifier + ",".join(expanded_patterns)
 
 
 def get_allowed_extensions(
@@ -52,12 +95,14 @@ def get_allowed_extensions(
             file suffixes. A leading `+` adds patterns to the defaults, and a
             leading `^` removes matching extensions from the defaults. Empty
             entries select files without an extension for ordinary and `+`
-            specifications. `None` selects only the defaults.
+            specifications. `allimg`, `images`, and `allimages` expand to all
+            supported image extensions. `None` selects only the defaults.
 
     Returns:
         Compiled regular expressions for matching file suffixes, including the
         empty suffix when extensionless files are selected.
     """
+    extension_spec = _expand_image_extension_aliases(extension_spec)
     modifier, extension_patterns = parse_regex_spec(
         extension_spec,
         re.IGNORECASE,
@@ -98,7 +143,8 @@ def collect_files(
         formats: Comma-separated extension regular expressions. A leading `+`
             adds to the default extensions, and a leading `^` removes matching
             extensions from the defaults. Empty entries select files without
-            an extension. `None` selects the default extensions.
+            an extension. `allimg`, `images`, and `allimages` select all supported
+            image extensions. `None` selects the default extensions.
         filename_pattern: Optional regular expression matched against each
             filename stem.
         sort_spec: Sort key (`a`, `c`, `t`, or `u`) and optional reverse flag

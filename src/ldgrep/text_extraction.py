@@ -8,6 +8,8 @@ import tempfile
 import zipfile
 import xml.etree.ElementTree as ET
 
+from .file_discovery import SUPPORTED_IMAGE_EXTENSIONS
+
 OOXML_WORD_NAMESPACE = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 OOXML_DRAWING_NAMESPACE = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
 OOXML_PACKAGE_REL_NAMESPACE = (
@@ -22,18 +24,6 @@ ODF_XLINK_NAMESPACE = "{http://www.w3.org/1999/xlink}"
 ODF_DC_NAMESPACE = "{http://purl.org/dc/elements/1.1/}"
 ODF_META_NAMESPACE = "{urn:oasis:names:tc:opendocument:xmlns:meta:1.0}"
 ODF_PARAGRAPH_TAGS = {f"{ODF_TEXT_NAMESPACE}p", f"{ODF_TEXT_NAMESPACE}h"}
-OCR_IMAGE_EXTENSIONS = {
-    ".bmp",
-    ".gif",
-    ".jpeg",
-    ".jpg",
-    ".png",
-    ".tif",
-    ".tiff",
-    ".webp",
-}
-
-
 def _ocr_image(image: bytes, source: str, lang: str) -> list[str]:
     """Recognize text in one image using the Tesseract command-line program.
 
@@ -106,7 +96,7 @@ def _extract_ooxml_images(
     for name in archive.namelist():
         if (
             name.startswith(media_prefixes)
-            and Path(name).suffix.lower() in OCR_IMAGE_EXTENSIONS
+            and Path(name).suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS
         ):
             lines.extend(_ocr_image(archive.read(name), name, ocr_lang))
     return lines
@@ -137,7 +127,7 @@ def _extract_odf_images(path: Path, use_ocr: bool, ocr_lang: str) -> list[str]:
         for name in archive.namelist():
             if (
                 name.startswith("Pictures/")
-                and Path(name).suffix.lower() in OCR_IMAGE_EXTENSIONS
+                and Path(name).suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS
             ):
                 lines.extend(_ocr_image(archive.read(name), name, ocr_lang))
     return lines
@@ -1457,8 +1447,9 @@ def extract_text(
 ) -> list[str]:
     """Dispatch a file to the extractor for its extension.
 
-    Supported office and PDF formats use dedicated extractors; other files are
-    decoded as UTF-8 text with undecodable bytes replaced.
+    Supported office and PDF formats use dedicated extractors. Supported image
+    files are OCRed; other files are decoded as UTF-8 text with undecodable
+    bytes replaced.
 
     Args:
         path: File whose text should be extracted.
@@ -1472,6 +1463,9 @@ def extract_text(
     """
     # Normalize the suffix so extension matching is case-insensitive.
     suffix = path.suffix.lower()
+
+    if suffix in SUPPORTED_IMAGE_EXTENSIONS:
+        return _ocr_image(path.read_bytes(), str(path), ocr_lang)
 
     if suffix == ".pdf":
         if use_ocr:

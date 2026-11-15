@@ -3,6 +3,7 @@ import sys
 from bisect import bisect_right
 from pathlib import Path
 
+from .file_discovery import SUPPORTED_IMAGE_EXTENSIONS
 from .output import print_file, print_error, progress_enabled
 from .text_extraction import extract_text
 
@@ -202,6 +203,8 @@ def search_file(
                 ocr_min_text=ocr_min_text,
                 ocr_lang=ocr_lang,
             )
+        elif path.suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS:
+            lines = extract_text(path, ocr_lang=ocr_lang)
         else:
             lines = extract_text(path)
     except Exception as exc:

@@ -52,6 +52,31 @@ def test_get_allowed_extensions_defaults_to_default_formats() -> None:
     assert file_discovery.is_allowed_extension(".DOCX", allowed_extensions)
     assert not file_discovery.is_allowed_extension(".doc", allowed_extensions)
     assert not file_discovery.is_allowed_extension(".py", allowed_extensions)
+    assert not file_discovery.is_allowed_extension(".png", allowed_extensions)
+
+
+@pytest.mark.parametrize("alias", ["allimg", "images", "allimages", "ALLIMAGES"])
+def test_get_allowed_extensions_expands_image_aliases(alias: str) -> None:
+    allowed_extensions = file_discovery.get_allowed_extensions(alias)
+
+    assert {
+        extension
+        for extension in file_discovery.SUPPORTED_IMAGE_EXTENSIONS
+        if file_discovery.is_allowed_extension(extension, allowed_extensions)
+    } == file_discovery.SUPPORTED_IMAGE_EXTENSIONS
+    assert not file_discovery.is_allowed_extension(".md", allowed_extensions)
+    assert not file_discovery.is_allowed_extension(".txt", allowed_extensions)
+
+
+def test_get_allowed_extensions_combines_image_aliases_with_other_patterns() -> None:
+    only_text_and_images = file_discovery.get_allowed_extensions("txt,images")
+    defaults_and_images = file_discovery.get_allowed_extensions("+allimg")
+
+    assert file_discovery.is_allowed_extension(".txt", only_text_and_images)
+    assert file_discovery.is_allowed_extension(".png", only_text_and_images)
+    assert not file_discovery.is_allowed_extension(".md", only_text_and_images)
+    assert file_discovery.is_allowed_extension(".md", defaults_and_images)
+    assert file_discovery.is_allowed_extension(".webp", defaults_and_images)
 
 
 def test_get_allowed_extensions_accepts_patterns_without_defaults() -> None:
@@ -108,6 +133,20 @@ def test_collect_files_removes_default_extensions(
     found = file_discovery.collect_files([str(tmp_path)], formats="^md")
 
     assert found == [text.resolve()]
+
+
+def test_collect_files_selects_all_image_extensions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    images = [tmp_path / "scan.png", tmp_path / "scan.webp"]
+    text = tmp_path / "notes.txt"
+    for path in [*images, text]:
+        path.touch()
+    monkeypatch.setattr(file_discovery, "progress_enabled", lambda: False)
+
+    found = file_discovery.collect_files([str(tmp_path)], formats="images")
+
+    assert set(found) == {path.resolve() for path in images}
 
 
 def test_collect_files_excludes_matching_directories_and_prunes_them(

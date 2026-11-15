@@ -138,6 +138,25 @@ def test_ocr_image_invokes_tesseract(monkeypatch) -> None:
     ]
 
 
+def test_extract_text_automatically_ocr_standalone_image(
+    monkeypatch, tmp_path: Path
+) -> None:
+    image_path = tmp_path / "scan.PNG"
+    image_path.write_bytes(b"image bytes")
+    calls: list[tuple[bytes, str, str]] = []
+
+    def fake_ocr(image: bytes, source: str, lang: str) -> list[str]:
+        calls.append((image, source, lang))
+        return ["recognized text"]
+
+    monkeypatch.setattr(text_extraction, "_ocr_image", fake_ocr)
+
+    assert text_extraction.extract_text(image_path, ocr_lang="deu") == [
+        "recognized text"
+    ]
+    assert calls == [(b"image bytes", str(image_path), "deu")]
+
+
 @pytest.mark.parametrize(
     ("filename", "expected_text"),
     [

@@ -18,6 +18,7 @@ from .archive_handling import (
 )
 from .file_discovery import (
     SUPPORTED_EXTENSIONS,
+    SUPPORTED_IMAGE_EXTENSIONS,
     DEFAULT_EXTENSIONS,
     get_allowed_extensions,
     collect_files,
@@ -174,7 +175,8 @@ def _run() -> int:
         action="store_true",
         help=(
             "Use Tesseract OCR for embedded images in supported Office and "
-            "OpenDocument files, and PDFs."
+            "OpenDocument files, and PDFs. Selected standalone images are "
+            "always OCRed."
         ),
     )
 
@@ -267,7 +269,9 @@ def _run() -> int:
             + "extensionless files.\n"
             + "Other supported extensions, such as '"
             + ",".join([i[1:] for i in (SUPPORTED_EXTENSIONS - DEFAULT_EXTENSIONS)])
-            + "', must be explicitly requested."
+            + "', must be explicitly requested. "
+            + "Use 'allimg', 'images', or 'allimages' to select every supported "
+            + "image extension."
         ),
     )
 
@@ -458,15 +462,26 @@ def _run() -> int:
     print(f"Searching {files_total} files...{archive_note}")
 
     total_matches = 0
-    ocr_options = (
-        {
-            "use_ocr": True,
-            "ocr_min_text": args.ocr_min_text,
-            "ocr_lang": args.ocr_lang,
-        }
-        if args.ocr
-        else {}
-    )
+
+    def search_ocr_options(path: Path) -> dict[str, object]:
+        """Return the OCR settings that apply to this file.
+
+        Args:
+            path: Candidate document or standalone image.
+
+        Returns:
+            The language setting for standalone images, or OCR settings for
+            documents when `--ocr` is enabled.
+        """
+        if path.suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS:
+            return {"ocr_lang": args.ocr_lang}
+        if args.ocr:
+            return {
+                "use_ocr": True,
+                "ocr_min_text": args.ocr_min_text,
+                "ocr_lang": args.ocr_lang,
+            }
+        return {}
 
     # Search ordinary files first, updating progress after each completed file.
     for path in files:
@@ -478,7 +493,7 @@ def _run() -> int:
             red,
             reset,
             args.matchlen,
-            **ocr_options,
+            **search_ocr_options(path),
         )
         files_searched += 1
         show_search_progress(
@@ -530,7 +545,7 @@ def _run() -> int:
                             args.matchlen,
                             display_name=member_name,
                             link_path=archive_path,
-                            **ocr_options,
+                            **search_ocr_options(member_path),
                         )
                     except Exception as exc:
                         print_error(f"\nWarning: cannot read {display_name}: {exc}")

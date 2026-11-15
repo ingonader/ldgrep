@@ -205,6 +205,33 @@ def test_run_passes_ocr_options_to_search(
     ]
 
 
+def test_run_passes_language_for_selected_images_without_ocr_flag(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    image_path = tmp_path / "scan.png"
+    search_options: list[dict[str, object]] = []
+    _prepare_cli(
+        monkeypatch,
+        "needle",
+        str(image_path),
+        "--ext",
+        "images",
+        "--ocr-lang",
+        "deu",
+    )
+    monkeypatch.setattr(ldgrep, "collect_files", lambda *args: [image_path])
+
+    def fake_search(*args, **kwargs) -> int:
+        search_options.append(kwargs)
+        return 1
+
+    monkeypatch.setattr(ldgrep, "search_file", fake_search)
+
+    assert ldgrep._run() == 0
+    assert search_options == [{"ocr_lang": "deu"}]
+
+
 def test_run_clears_completed_progress_line(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
