@@ -151,102 +151,6 @@ def _run() -> int:
     )
 
     parser.add_argument(
-        "-i",
-        "--ignore-case",
-        action="store_true",
-        help=(
-            "Ignore case in the content pattern, file-name pattern, and "
-            + "directory-exclusion patterns."
-        ),
-    )
-
-    parser.add_argument(
-        "-a",
-        "--include-archives",
-        action="store_true",
-        help=(
-            "Also search supported archive files found at the given paths. "
-            + "Ordinary files are searched first."
-        ),
-    )
-
-    parser.add_argument(
-        "--ocr",
-        action="store_true",
-        help=(
-            "Use Tesseract OCR for embedded images in supported Office and "
-            "OpenDocument files, and PDFs. Selected standalone images are "
-            "always OCRed."
-        ),
-    )
-
-    parser.add_argument(
-        "--ocr-min-text",
-        type=int,
-        default=100,
-        metavar="CHARS",
-        help=(
-            "For PDFs, OCR whole pages when the total extracted page text "
-            + "contains fewer than CHARS characters. Default: 100."
-        ),
-    )
-
-    parser.add_argument(
-        "--ocr-lang",
-        type=str,
-        default="eng+deu",
-        metavar="LANG",
-        help=(
-            "Tesseract language code(s), joined with '+'. "
-            + "Default: eng+deu."
-        ),
-    )
-
-    parser.add_argument(
-        "-B",
-        "--before-context",
-        type=int,
-        default=0,
-        metavar="N",
-        help="Print up to N lines before each matching line. Default: 0.",
-    )
-
-    parser.add_argument(
-        "-A",
-        "--after-context",
-        type=int,
-        default=0,
-        metavar="N",
-        help="Print up to N lines after each matching line. Default: 0.",
-    )
-
-    parser.add_argument(
-        "-C",
-        "--context",
-        type=int,
-        default=None,
-        metavar="N",
-        help=(
-            "Print up to N lines before and after each match. This overrides "
-            + "-A and -B if they are also supplied."
-        ),
-    )
-
-    parser.add_argument(
-        "-l",
-        "--matchlen",
-        type=int,
-        default=None,
-        metavar="N",
-        help=(
-            "Limit displayed line excerpts to approximately CHARS characters, "
-            + "centered on each match. A match longer than this value is kept "
-            + "whole. Context-only lines are shortened from the beginning. "
-            + "Must be a positive integer."
-        ),
-    )
-
-    parser.add_argument(
         "-e",
         "--ext",
         type=str,
@@ -305,6 +209,99 @@ def _run() -> int:
             + "A leading '^' removes matching defaults (for example, '^renv,venv' removes matching "
             + "renv and venv defaults).\n"
             + "Paths excluded during discovery are summarized in the output."
+        ),
+    )
+
+    parser.add_argument(
+        "-i",
+        "--ignore-case",
+        action="store_true",
+        help=(
+            "Ignore case in the content pattern, file-name pattern, and "
+            + "directory-exclusion patterns."
+        ),
+    )
+
+    parser.add_argument(
+        "-a",
+        "--include-archives",
+        action="store_true",
+        help=(
+            "Also search supported archive files found at the given paths. "
+            + "Ordinary files are searched first."
+        ),
+    )
+
+    parser.add_argument(
+        "--ocr",
+        action="store_true",
+        help=(
+            "Use Tesseract OCR for embedded images in supported Office and "
+            "OpenDocument files, and PDFs. Selected standalone images are "
+            "always OCRed."
+        ),
+    )
+
+    parser.add_argument(
+        "--ocr-min-text",
+        type=int,
+        default=100,
+        metavar="CHARS",
+        help=(
+            "For PDFs, OCR whole pages when the total extracted page text "
+            + "contains fewer than CHARS characters. Default: 100."
+        ),
+    )
+
+    parser.add_argument(
+        "--ocr-lang",
+        type=str,
+        default="eng+deu",
+        metavar="LANG",
+        help=("Tesseract language code(s), joined with '+'. " + "Default: eng+deu."),
+    )
+
+    parser.add_argument(
+        "-B",
+        "--before-context",
+        type=int,
+        default=0,
+        metavar="N",
+        help="Print up to N lines before each matching line. Default: 0.",
+    )
+
+    parser.add_argument(
+        "-A",
+        "--after-context",
+        type=int,
+        default=0,
+        metavar="N",
+        help="Print up to N lines after each matching line. Default: 0.",
+    )
+
+    parser.add_argument(
+        "-C",
+        "--context",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "Print up to N lines before and after each match. This overrides "
+            + "-A and -B if they are also supplied."
+        ),
+    )
+
+    parser.add_argument(
+        "-l",
+        "--matchlen",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "Limit displayed line excerpts to approximately CHARS characters, "
+            + "centered on each match. A match longer than this value is kept "
+            + "whole. Context-only lines are shortened from the beginning. "
+            + "Must be a positive integer."
         ),
     )
 
