@@ -127,7 +127,11 @@ def _ocr_image(image: bytes, source: str, lang: str) -> list[str]:
     if not text:
         _debug_ocr("OCR completed for %s: no text recognized", source)
         return []
-    _debug_ocr("OCR completed for %s: text recognized", source)
+    _debug_ocr(
+        "OCR completed for %s: extracted %d text characters",
+        source,
+        len(text),
+    )
     return [f"[OCR: {source}]", *text.splitlines()]
 
 

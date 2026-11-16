@@ -200,7 +200,9 @@ def test_ooxml_image_ocr_reads_only_embedded_image_files(
     assert calls == [(b"image bytes", "word/media/image1.png", "deu")]
 
 
-def test_ocr_image_invokes_tesseract(monkeypatch) -> None:
+def test_ocr_image_invokes_tesseract(
+    monkeypatch, caplog: pytest.LogCaptureFixture
+) -> None:
     result = SimpleNamespace(stdout=b"recognized text\n")
     calls: list[tuple[list[str], dict[str, object]]] = []
 
@@ -209,6 +211,7 @@ def test_ocr_image_invokes_tesseract(monkeypatch) -> None:
         return result
 
     monkeypatch.setattr(text_extraction.subprocess, "run", fake_run)
+    caplog.set_level(logging.DEBUG, logger="ldgrep")
 
     assert text_extraction._ocr_image(
         b"image bytes", "image.png", lang="deu+eng"
@@ -227,6 +230,7 @@ def test_ocr_image_invokes_tesseract(monkeypatch) -> None:
             },
         )
     ]
+    assert "OCR completed for image.png: extracted 15 text characters" in caplog.text
 
 
 def test_extract_text_automatically_ocr_standalone_image(
