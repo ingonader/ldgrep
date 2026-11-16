@@ -1,5 +1,6 @@
-import sys
+import logging
 import shutil
+import sys
 from pathlib import Path
 
 
@@ -24,7 +25,11 @@ def configure_colors(mode: str) -> tuple[str, str]:
 
 
 def progress_enabled() -> bool:
-    return sys.stdout.isatty() and sys.stderr.isatty()
+    return (
+        logging.getLogger("ldgrep").getEffectiveLevel() > logging.INFO
+        and sys.stdout.isatty()
+        and sys.stderr.isatty()
+    )
 
 
 def hyperlink(path: Path) -> str:

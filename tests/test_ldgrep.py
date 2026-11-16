@@ -1,10 +1,13 @@
 import argparse
+import logging
 import re
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from ldgrep import ldgrep
+from ldgrep import text_extraction
 
 
 @pytest.mark.parametrize(
@@ -32,7 +35,11 @@ def test_parse_sort_spec_rejects_invalid_values(value: str) -> None:
 
 def _prepare_cli(monkeypatch: pytest.MonkeyPatch, *args: str) -> None:
     monkeypatch.setattr(ldgrep.sys, "argv", ["ldgrep", *args])
-    monkeypatch.setattr(ldgrep, "configure_logging", lambda: None)
+    monkeypatch.setattr(
+        ldgrep,
+        "configure_logging",
+        lambda level="WARNING": logging.getLogger("ldgrep").setLevel(logging.WARNING),
+    )
     monkeypatch.setattr(ldgrep, "configure_colors", lambda color: ("<", ">"))
     monkeypatch.setattr(ldgrep, "progress_enabled", lambda: False)
     monkeypatch.setattr(ldgrep, "show_search_progress", lambda *args, **kwargs: None)
@@ -230,6 +237,111 @@ def test_run_passes_language_for_selected_images_without_ocr_flag(
 
     assert ldgrep._run() == 0
     assert search_options == [{"ocr_lang": "deu"}]
+
+
+@pytest.mark.parametrize(
+    ("level", "expected"), [("info", "INFO"), ("DEBUG", "DEBUG")]
+)
+def test_run_configures_requested_log_level(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    level: str,
+    expected: str,
+) -> None:
+    configured_levels: list[str] = []
+    _prepare_cli(monkeypatch, "needle", str(tmp_path), "--log-level", level)
+    monkeypatch.setattr(
+        ldgrep, "configure_logging", lambda value: configured_levels.append(value)
+    )
+    monkeypatch.setattr(ldgrep, "collect_files", lambda *args: [])
+
+    assert ldgrep._run() == 1
+    assert configured_levels == [expected]
+
+
+def test_info_logs_one_summary_per_file_and_archive_member(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from zipfile import ZipFile
+
+    document = tmp_path / "ordinary.md"
+    document.write_text("needle\n")
+    archive = tmp_path / "documents.zip"
+    with ZipFile(archive, "w") as archive_file:
+        archive_file.writestr("folder/member.md", "needle\n")
+
+    monkeypatch.setattr(
+        ldgrep.sys,
+        "argv",
+        ["ldgrep", "needle", str(tmp_path), "-a", "--log-level", "INFO"],
+    )
+
+    assert ldgrep._run() == 0
+
+    stderr = capsys.readouterr().err
+    info_lines = [line for line in stderr.splitlines() if line.startswith("INFO:")]
+    assert len(info_lines) == 2
+    assert any(
+        "ordinary.md" in line and "matching lines=1" in line for line in info_lines
+    )
+    assert any(
+        "documents.zip!/folder/member.md" in line and "matching lines=1" in line
+        for line in info_lines
+    )
+    assert all(
+        "page" not in line.lower() and "image" not in line.lower()
+        for line in info_lines
+    )
+
+
+def test_default_log_level_preserves_normal_output(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    document = tmp_path / "ordinary.md"
+    document.write_text("needle\n")
+    monkeypatch.setattr(ldgrep.sys, "argv", ["ldgrep", "needle", str(document)])
+
+    assert ldgrep._run() == 0
+
+    captured = capsys.readouterr()
+    assert "1: needle" in captured.out
+    assert "Searched 1 files (archives excluded by user)." in captured.out
+    assert "INFO:" not in captured.err
+    assert "DEBUG:" not in captured.err
+    assert logging.getLogger("ldgrep").getEffectiveLevel() == logging.WARNING
+
+
+def test_info_summary_reports_standalone_image_ocr(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    image = tmp_path / "scan.png"
+    image.write_bytes(b"image")
+    monkeypatch.setattr(
+        text_extraction.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(stdout=b"needle\n"),
+    )
+    monkeypatch.setattr(
+        ldgrep.sys,
+        "argv",
+        ["ldgrep", "needle", str(image), "-e", "images", "--log-level", "INFO"],
+    )
+
+    assert ldgrep._run() == 0
+
+    info_lines = [
+        line
+        for line in capsys.readouterr().err.splitlines()
+        if line.startswith("INFO:")
+    ]
+    assert len(info_lines) == 1
+    assert "scan.png: OCR attempted=True; matching lines=1" in info_lines[0]
 
 
 def test_run_clears_completed_progress_line(

@@ -1,3 +1,4 @@
+import logging
 import re
 import sys
 from bisect import bisect_right
@@ -5,7 +6,22 @@ from pathlib import Path
 
 from .file_discovery import SUPPORTED_IMAGE_EXTENSIONS
 from .output import print_file, print_error, progress_enabled
-from .text_extraction import extract_text
+from .text_extraction import extract_text, track_ocr_activity
+
+logger = logging.getLogger("ldgrep")
+
+OCR_DOCUMENT_EXTENSIONS = {
+    ".doc",
+    ".docx",
+    ".odt",
+    ".odp",
+    ".pdf",
+    ".ppt",
+    ".pptx",
+    ".xls",
+    ".xlsx",
+    ".ods",
+}
 
 
 def _contains_newline(pattern: str) -> bool:
@@ -194,24 +210,51 @@ def search_file(
         Number of matching lines found, or zero if extraction fails or there
         are no matches.
     """
+    source_name = (
+        f"{link_path}!/{display_name}"
+        if link_path is not None and display_name is not None
+        else display_name or str(path)
+    )
+    suffix = path.suffix.lower()
+    is_image = suffix in SUPPORTED_IMAGE_EXTENSIONS
+    ocr_enabled = is_image or use_ocr
+
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug("%s: OCR enabled=%s", source_name, ocr_enabled)
+        if is_image:
+            logger.debug(
+                "%s: standalone image OCR is enabled automatically", source_name
+            )
+        elif suffix not in OCR_DOCUMENT_EXTENSIONS:
+            logger.debug(
+                "%s: OCR skipped (format %s does not support OCR)",
+                source_name,
+                suffix or "<no extension>",
+            )
+        elif not use_ocr:
+            logger.debug("%s: OCR skipped (--ocr was not requested)", source_name)
+
     try:
         # Convert every supported input format to the same list-of-lines representation.
-        if use_ocr:
-            lines = extract_text(
-                path,
-                use_ocr=True,
-                ocr_min_text=ocr_min_text,
-                ocr_lang=ocr_lang,
-            )
-        elif path.suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS:
-            lines = extract_text(path, ocr_lang=ocr_lang)
-        else:
-            lines = extract_text(path)
+        with track_ocr_activity(source_name) as ocr_activity:
+            if use_ocr:
+                lines = extract_text(
+                    path,
+                    use_ocr=True,
+                    ocr_min_text=ocr_min_text,
+                    ocr_lang=ocr_lang,
+                )
+            elif is_image:
+                lines = extract_text(path, ocr_lang=ocr_lang)
+            else:
+                lines = extract_text(path)
     except Exception as exc:
-        source_name = (
-            f"{link_path}!/{display_name}"
-            if link_path is not None and display_name is not None
-            else display_name or path
+        if logger.isEnabledFor(logging.DEBUG) and ocr_enabled:
+            logger.debug("OCR unavailable for %s: %s", source_name, exc)
+        logger.info(
+            "%s: OCR attempted=%s; matching lines=0",
+            source_name,
+            bool(ocr_activity.attempts),
         )
         print_error(f"Warning: cannot read {source_name}: {exc}")
         return 0
@@ -249,6 +292,13 @@ def search_file(
                 line_spans[index] = spans
 
     matches = sorted(matched_indexes)
+
+    logger.info(
+        "%s: OCR attempted=%s; matching lines=%d",
+        source_name,
+        bool(ocr_activity.attempts),
+        len(matches),
+    )
 
     if not matches:
         return 0

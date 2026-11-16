@@ -1,5 +1,8 @@
 from contextlib import contextmanager
 from collections.abc import Iterator, Mapping
+from contextvars import ContextVar
+from dataclasses import dataclass
+import logging
 from pathlib import Path
 import re
 import shutil
@@ -24,6 +27,55 @@ ODF_XLINK_NAMESPACE = "{http://www.w3.org/1999/xlink}"
 ODF_DC_NAMESPACE = "{http://purl.org/dc/elements/1.1/}"
 ODF_META_NAMESPACE = "{urn:oasis:names:tc:opendocument:xmlns:meta:1.0}"
 ODF_PARAGRAPH_TAGS = {f"{ODF_TEXT_NAMESPACE}p", f"{ODF_TEXT_NAMESPACE}h"}
+
+logger = logging.getLogger("ldgrep")
+
+
+@dataclass
+class OcrActivity:
+    """Track OCR attempts made while extracting one source file."""
+
+    source: str | None = None
+    attempts: int = 0
+
+
+_current_ocr_activity: ContextVar[OcrActivity | None] = ContextVar(
+    "ldgrep_ocr_activity", default=None
+)
+
+
+@contextmanager
+def track_ocr_activity(source: str | None = None) -> Iterator[OcrActivity]:
+    """Track OCR attempts for the duration of one extraction.
+
+    Args:
+        source: Optional file identity to include in OCR debug messages.
+
+    Yields:
+        The activity counter updated by OCR attempts within the context.
+    """
+    activity = OcrActivity(source=source)
+    token = _current_ocr_activity.set(activity)
+    try:
+        yield activity
+    finally:
+        _current_ocr_activity.reset(token)
+
+
+def _debug_ocr(message: str, *args: object) -> None:
+    """Log an OCR diagnostic with the active file identity when available.
+
+    Args:
+        message: Logging format string for the diagnostic.
+        *args: Values interpolated into the format string.
+    """
+    activity = _current_ocr_activity.get()
+    if activity is not None and activity.source is not None:
+        logger.debug("%s: " + message, activity.source, *args)
+    else:
+        logger.debug(message, *args)
+
+
 def _ocr_image(image: bytes, source: str, lang: str) -> list[str]:
     """Recognize text in one image using the Tesseract command-line program.
 
@@ -41,6 +93,11 @@ def _ocr_image(image: bytes, source: str, lang: str) -> list[str]:
         RuntimeError: If Tesseract is unavailable, times out, or cannot
             process the image.
     """
+    activity = _current_ocr_activity.get()
+    if activity is not None:
+        activity.attempts += 1
+    _debug_ocr("OCR attempted for %s", source)
+
     try:
         result = subprocess.run(
             ["tesseract", "stdin", "stdout", "-l", lang],
@@ -50,10 +107,12 @@ def _ocr_image(image: bytes, source: str, lang: str) -> list[str]:
             timeout=120,
         )
     except FileNotFoundError as exc:
+        _debug_ocr("OCR unavailable for %s: Tesseract is not installed", source)
         raise RuntimeError(
             "OCR requires Tesseract; install the tesseract-ocr system package."
         ) from exc
     except subprocess.TimeoutExpired as exc:
+        _debug_ocr("OCR unavailable for %s: timed out", source)
         raise RuntimeError(f"OCR timed out while processing {source}.") from exc
     except subprocess.CalledProcessError as exc:
         details = (
@@ -61,11 +120,14 @@ def _ocr_image(image: bytes, source: str, lang: str) -> list[str]:
             if isinstance(exc.stderr, bytes)
             else (exc.stderr or "")
         ).strip()
+        _debug_ocr("OCR unavailable for %s: Tesseract could not process it", source)
         raise RuntimeError(f"Tesseract could not process {source}. {details}") from exc
 
     text = result.stdout.decode("utf-8", errors="replace").strip()
     if not text:
+        _debug_ocr("OCR completed for %s: no text recognized", source)
         return []
+    _debug_ocr("OCR completed for %s: text recognized", source)
     return [f"[OCR: {source}]", *text.splitlines()]
 
 
@@ -88,17 +150,28 @@ def _extract_ooxml_images(
         zipfile.BadZipFile: If an embedded image cannot be read from the
             package.
     """
-    if not use_ocr:
+    if not use_ocr and not logger.isEnabledFor(logging.DEBUG):
         return []
 
     media_prefixes = ("word/media/", "ppt/media/", "xl/media/")
+    image_names = [
+        name
+        for name in archive.namelist()
+        if name.startswith(media_prefixes)
+        and Path(name).suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS
+    ]
+    if not use_ocr:
+        for name in image_names:
+            _debug_ocr("OCR skipped for embedded image %s: OCR is disabled", name)
+        if not image_names:
+            _debug_ocr("OCR skipped: no supported embedded images found")
+        return []
+
+    if not image_names:
+        _debug_ocr("OCR skipped: no supported embedded images found")
     lines = []
-    for name in archive.namelist():
-        if (
-            name.startswith(media_prefixes)
-            and Path(name).suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS
-        ):
-            lines.extend(_ocr_image(archive.read(name), name, ocr_lang))
+    for name in image_names:
+        lines.extend(_ocr_image(archive.read(name), name, ocr_lang))
     return lines
 
 
@@ -119,17 +192,30 @@ def _extract_odf_images(path: Path, use_ocr: bool, ocr_lang: str) -> list[str]:
         zipfile.BadZipFile: If the document is not a valid ZIP package or an
             embedded image cannot be read.
     """
-    if not use_ocr:
+    if not use_ocr and not logger.isEnabledFor(logging.DEBUG):
         return []
 
     lines = []
     with zipfile.ZipFile(path) as archive:
-        for name in archive.namelist():
-            if (
-                name.startswith("Pictures/")
-                and Path(name).suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS
-            ):
-                lines.extend(_ocr_image(archive.read(name), name, ocr_lang))
+        image_names = [
+            name
+            for name in archive.namelist()
+            if name.startswith("Pictures/")
+            and Path(name).suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS
+        ]
+        if not use_ocr:
+            for name in image_names:
+                _debug_ocr(
+                    "OCR skipped for embedded image %s: OCR is disabled", name
+                )
+            if not image_names:
+                _debug_ocr("OCR skipped: no supported embedded images found")
+            return []
+
+        if not image_names:
+            _debug_ocr("OCR skipped: no supported embedded images found")
+        for name in image_names:
+            lines.extend(_ocr_image(archive.read(name), name, ocr_lang))
     return lines
 
 
@@ -631,11 +717,29 @@ def _extract_pdf_ocr(path: Path, min_text: int, ocr_lang: str) -> list[str]:
     lines: list[str] = []
     with pymupdf.open(path) as document:
         pages = list(document)
-        text_length = sum(
+        page_text_lengths = [
             len((page.get_text("text") or "").strip()) for page in pages
+        ]
+        text_length = sum(page_text_lengths)
+        for page_number, page_length in enumerate(page_text_lengths, start=1):
+            _debug_ocr(
+                "PDF page %d: extracted %d text characters",
+                page_number,
+                page_length,
+            )
+        _debug_ocr(
+            "PDF aggregate: extracted %d text characters; threshold is %d",
+            text_length,
+            min_text,
         )
         if text_length < min_text:
+            _debug_ocr(
+                "PDF OCR decision: whole-page OCR (aggregate %d < threshold %d)",
+                text_length,
+                min_text,
+            )
             for page_number, page in enumerate(pages, start=1):
+                _debug_ocr("Whole-page OCR selected for PDF page %d", page_number)
                 pixmap = page.get_pixmap(
                     matrix=pymupdf.Matrix(300 / 72, 300 / 72),
                     alpha=False,
@@ -649,11 +753,23 @@ def _extract_pdf_ocr(path: Path, min_text: int, ocr_lang: str) -> list[str]:
                 )
             return lines
 
+        _debug_ocr(
+            "PDF OCR decision: embedded-image OCR only "
+            "(aggregate %d >= threshold %d)",
+            text_length,
+            min_text,
+        )
         seen_images: set[int] = set()
         for page_number, page in enumerate(pages, start=1):
-            for image_info in page.get_images(full=True):
+            page_images = page.get_images(full=True)
+            for image_info in page_images:
                 xref = image_info[0]
                 if xref in seen_images:
+                    _debug_ocr(
+                        "PDF page %d, image %d: OCR skipped (already processed)",
+                        page_number,
+                        xref,
+                    )
                     continue
                 seen_images.add(xref)
                 extracted = document.extract_image(xref)
@@ -663,6 +779,10 @@ def _extract_pdf_ocr(path: Path, min_text: int, ocr_lang: str) -> list[str]:
                         f"PDF page {page_number}, image {xref}",
                         ocr_lang,
                     )
+                )
+            if not page_images:
+                _debug_ocr(
+                    "PDF page %d: OCR skipped (no embedded images)", page_number
                 )
 
     return lines

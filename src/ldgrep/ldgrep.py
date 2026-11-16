@@ -32,13 +32,29 @@ from .output import (
 )
 from .text_matching import compile_search_pattern, search_file
 
+_logging_handler: logging.Handler | None = None
 
-def configure_logging():
-    """Reduce warning noise from PDF extraction dependencies.
 
-    The command-line output is intended for search results, so warnings emitted
-    by pypdf are suppressed while errors remain visible.
+def configure_logging(level: str = "WARNING") -> None:
+    """Configure CLI logging and reduce warning noise from PDF extraction.
+
+    ldgrep log messages are sent to standard error. pypdf warnings are
+    suppressed while errors remain visible.
+
+    Args:
+        level: Standard logging level name used for ldgrep messages.
     """
+    global _logging_handler
+
+    logger = logging.getLogger("ldgrep")
+    if _logging_handler is not None:
+        logger.removeHandler(_logging_handler)
+    _logging_handler = logging.StreamHandler(sys.stderr)
+    _logging_handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
+    logger.addHandler(_logging_handler)
+    logger.setLevel(getattr(logging, level))
+    logger.propagate = False
+
     # Keep third-party parser warnings from obscuring search output.
     logging.getLogger("pypdf").setLevel(logging.ERROR)
     warnings.filterwarnings("ignore", module=r"pypdf(\.|$)")
@@ -119,8 +135,6 @@ def _run() -> int:
         SystemExit: For invalid command-line arguments or invalid regular
             expressions, as handled by :mod:`argparse`.
     """
-    configure_logging()
-
     parser = ldgrepArgumentParser(
         description=(
             "Search "
@@ -330,8 +344,22 @@ def _run() -> int:
             + "(the default) uses color when standard output is a terminal."
         ),
     )
+
+    parser.add_argument(
+        "--log-level",
+        type=str.upper,
+        choices=("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"),
+        default="WARNING",
+        metavar="LEVEL",
+        help=(
+            "Set logging detail to DEBUG, INFO, WARNING (default), ERROR, or "
+            "CRITICAL. Logs are written to standard error."
+        ),
+    )
+
     # Parse and normalize command-line options before discovering input files.
     args = parser.parse_args()
+    configure_logging(args.log_level)
 
     # for interactive debugging:
     # args = parser.parse_args(["-a", "ishmael", str(Path(os.getcwd()).parent.parent)])

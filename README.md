@@ -104,14 +104,20 @@ selected, such as `-e png,jpg`.
 Use single quotes around patterns containing shell metacharacters such as `|`, `*`, parentheses, or spaces so the shell passes the complete regular expression to `ldgrep`. Expressions use Python's regular-expression syntax.
 
 Enable OCR for embedded images in supported Office and OpenDocument files and
-PDFs with `--ocr`. PDF pages are OCRed when their extracted text is shorter
-than 100 characters by default; change this threshold with
-`--ocr-min-text CHARS`. This flag controls OCR inside documents; standalone
-image files selected with `-e` are always OCRed. OCR requires the Tesseract
-executable. OCR for legacy `.doc`, `.ppt`, and `.xls` files also requires
-LibreOffice. The default OCR languages are English and German; use
-`--ocr-lang LANG` (for example, `eng` or `eng+fra`) to select installed
-Tesseract language data.
+PDFs with `--ocr`. Whole-page PDF OCR is selected when the sum of extracted
+text characters across all pages is below 100 by default; otherwise only
+embedded images are OCRed. Change this threshold with `--ocr-min-text CHARS`.
+This flag controls OCR inside documents; standalone image files selected with
+`-e` are always OCRed. OCR requires the Tesseract executable. OCR for legacy
+`.doc`, `.ppt`, and `.xls` files also requires LibreOffice. The default OCR
+languages are English and German; use `--ocr-lang LANG` (for example, `eng` or
+`eng+fra`) to select installed Tesseract language data.
+
+Logging is written to standard error. By default, only warnings and more
+serious messages are shown, so normal search output is unchanged. Set
+`--log-level INFO` for one summary per processed file (including archive
+members), or `--log-level DEBUG` for OCR decisions and document/image
+diagnostics. Progress bars are disabled at INFO and DEBUG.
 
 ## Command-line options
 
@@ -126,7 +132,7 @@ Run `ldgrep --help` (or `uvx ldgrep --help`) to see the options in the terminal.
 | `--exclude REGEXES` | `-x REGEXES` | Comma-separated regular expressions matched against relative directory paths (commas cannot appear inside an expression). Matching directories and all their contents are excluded, including archive members. By default, `/.git/`, `/.svn/`, `/.hg/`, `/__pycache__/`, `/.pytest_cache/`, `/.mypy_cache/`, `/.ruff_cache/`, `/.tox/`, `/.nox/`, `/node_modules/`, `/.venv/`, `/venv/`, `/virtualenv/`, `/renv/library/`, `/renv/sandbox/`, `/.next/`, `/.nuxt/`, `/.terraform/`, `/target/`, and `/.gradle/` are excluded. Specifying patterns replaces the defaults; prefix with `+` to add patterns to them, or `^` to remove matching defaults (for example, `-x '^renv,venv'` will remove both `renv` defaults `/renv/library`/ and `/renv/sandbox/`and both `venv` defaults `/venv/` and `/.venv/`). Paths excluded during discovery are summarized in the output. |
 | `--ignore-case` | `-i` | Ignore case in the content pattern, file-name pattern, and directory-exclusion patterns. |
 | `--include-archives` | `-a` | Also search supported archive files found at the given paths. Ordinary files are searched first. |
-| `--ocr` |  | Use Tesseract to extract text from embedded images in Office and OpenDocument files, and PDFs. Standalone images selected with `-e` are OCRed automatically. For PDFs, OCR whole pages when extracted page text is below the configured threshold. |
+| `--ocr` |  | Use Tesseract to extract text from embedded images in Office and OpenDocument files, and PDFs. Standalone images selected with `-e` are OCRed automatically. For PDFs, OCR whole pages when total extracted text across all pages is below the configured threshold; otherwise OCR embedded images. |
 | `--ocr-min-text CHARS` |  | With `--ocr`, OCR all PDF pages when the total extracted page text contains fewer than this many characters. Default: `100`; must be non-negative. |
 | `--ocr-lang LANG` |  | Tesseract language code(s), joined with `+` (for example, `eng+deu`). Passed directly to `tesseract` command. Default: `eng+deu`. |
 | `--before-context N` | `-B N` | Print up to `N` lines before each matching line. Default: `0`. |
@@ -135,6 +141,7 @@ Run `ldgrep --help` (or `uvx ldgrep --help`) to see the options in the terminal.
 | `--matchlen N` | `-l N` | Limit displayed line excerpts to approximately `N` characters, centered on each match. A match longer than this value is kept whole. Context-only lines are shortened from the beginning. Must be a positive integer. |
 | `--sort KEY[ r]` |  | Sort ordinary files and archives before searching. `a` sorts alphabetically by fully resolved path; `c` sorts by change time; `t` by modification time (default); `u` by last access time. Time sorts place newest files first. Add `r` to reverse the selected order, e.g. `--sort tr` searches oldest-modified files first. `--sort r` reverses alphabetical order. |
 | `--color MODE` | `-c MODE` | Set match coloring to `auto`, `always`, or `never`. `auto` (the default) uses color when standard output is a terminal. |
+| `--log-level LEVEL` |  | Set logging detail to `DEBUG`, `INFO`, `WARNING` (default), `ERROR`, or `CRITICAL`. Logs are written to standard error. INFO reports one summary per processed file; DEBUG includes OCR decisions and diagnostics. Progress bars are disabled at INFO and DEBUG. |
 | `--help` | `-h` | Show the help text and exit. |
 
 Context counts must be non-negative. The `-C` option takes precedence over `-A` and `-B`.

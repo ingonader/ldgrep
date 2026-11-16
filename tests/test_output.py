@@ -1,4 +1,5 @@
 from io import StringIO
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -41,6 +42,7 @@ def test_progress_is_disabled_when_stderr_is_not_a_terminal(
 def test_progress_is_enabled_when_stderr_is_a_terminal(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(logging.getLogger("ldgrep"), "level", logging.WARNING)
     monkeypatch.setattr(
         output,
         "sys",
@@ -58,6 +60,20 @@ def test_progress_is_disabled_when_stdout_is_not_a_terminal(
         "sys",
         SimpleNamespace(stdout=StringIO(), stderr=TerminalStream()),
     )
+
+    assert not output.progress_enabled()
+
+
+@pytest.mark.parametrize("level", [logging.DEBUG, logging.INFO])
+def test_progress_is_disabled_for_verbose_logging(
+    monkeypatch: pytest.MonkeyPatch, level: int
+) -> None:
+    monkeypatch.setattr(
+        output,
+        "sys",
+        SimpleNamespace(stdout=TerminalStream(), stderr=TerminalStream()),
+    )
+    monkeypatch.setattr(logging.getLogger("ldgrep"), "level", level)
 
     assert not output.progress_enabled()
 

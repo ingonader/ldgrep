@@ -1,4 +1,5 @@
 from pathlib import Path
+import logging
 import shutil
 import subprocess
 import sys
@@ -82,6 +83,96 @@ def test_pdf_ocr_uses_configured_threshold_and_language(monkeypatch) -> None:
         ocr_lang="deu+eng",
     ) == [*expected, "recognized image text"]
     assert ocr_calls == [(Path("sample.pdf"), 42, "deu+eng")]
+
+
+@pytest.mark.parametrize(
+    ("page_text", "threshold", "expected_sources", "expected_decision"),
+    [
+        (["a", "bc"], 4, ["PDF page 1", "PDF page 2"], "whole-page OCR"),
+        (
+            ["ab", "cde"],
+            5,
+            ["PDF page 1, image 17"],
+            "embedded-image OCR only",
+        ),
+    ],
+)
+def test_debug_pdf_logs_character_counts_and_ocr_decision(
+    monkeypatch,
+    capsys: pytest.CaptureFixture[str],
+    page_text: list[str],
+    threshold: int,
+    expected_sources: list[str],
+    expected_decision: str,
+) -> None:
+    from ldgrep.ldgrep import configure_logging
+
+    monkeypatch.setattr(logging.getLogger("ldgrep"), "level", logging.WARNING)
+
+    class Page:
+        def __init__(self, text: str, include_image: bool) -> None:
+            self.text = text
+            self.include_image = include_image
+
+        def get_text(self, _kind: str) -> str:
+            return self.text
+
+        def get_images(self, full: bool) -> list[tuple[int]]:
+            return [(17,)] if self.include_image else []
+
+        def get_pixmap(self, **_kwargs: object) -> SimpleNamespace:
+            return SimpleNamespace(tobytes=lambda _format: b"page image")
+
+    class Document:
+        def __init__(self, pages: list[Page]) -> None:
+            self.pages = pages
+
+        def __enter__(self) -> "Document":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            pass
+
+        def __iter__(self):
+            return iter(self.pages)
+
+        def extract_image(self, _xref: int) -> dict[str, bytes]:
+            return {"image": b"embedded image"}
+
+    pages = [Page(text, include_image=True) for text in page_text]
+    monkeypatch.setitem(
+        sys.modules,
+        "pymupdf",
+        SimpleNamespace(open=lambda _path: Document(pages), Matrix=lambda *_args: None),
+    )
+    monkeypatch.setattr(
+        text_extraction,
+        "extract_pdf_text_pymupdf",
+        lambda _path: ["[PDF page 1]", *page_text],
+    )
+    ocr_sources: list[str] = []
+    monkeypatch.setattr(
+        text_extraction,
+        "_ocr_image",
+        lambda _image, source, _lang: ocr_sources.append(source) or [],
+    )
+    configure_logging("DEBUG")
+
+    text_extraction.extract_pdf_text(
+        Path("sample.pdf"), use_ocr=True, ocr_min_text=threshold
+    )
+
+    diagnostics = capsys.readouterr().err
+    expected_total = sum(len(text.strip()) for text in page_text)
+    assert f"PDF aggregate: extracted {expected_total} text characters" in diagnostics
+    for page_number, text in enumerate(page_text, start=1):
+        assert (
+            f"PDF page {page_number}: extracted {len(text.strip())} text characters"
+            in diagnostics
+        )
+    assert f"threshold is {threshold}" in diagnostics
+    assert f"PDF OCR decision: {expected_decision}" in diagnostics
+    assert ocr_sources == expected_sources
 
 
 def test_ooxml_image_ocr_reads_only_embedded_image_files(
