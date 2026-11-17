@@ -253,9 +253,9 @@ def _run() -> int:
         "--ocr",
         action="store_true",
         help=(
-            "Use Tesseract OCR for embedded images in supported Office and "
-            "OpenDocument files, and PDFs. Selected standalone images are "
-            "always OCRed."
+            "Use Tesseract OCR for inline images in Markdown, and embedded "
+            "images in supported Office and OpenDocument files and PDFs. "
+            "Selected standalone images are always OCRed."
         ),
     )
 

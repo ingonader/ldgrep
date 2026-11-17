@@ -7,7 +7,9 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import string
 import tempfile
+from urllib.parse import unquote, urlsplit
 import zipfile
 import xml.etree.ElementTree as ET
 
@@ -145,6 +147,200 @@ def _ocr_image(image: bytes, source: str, lang: str) -> list[str]:
     else:
         logger.log(OCR_LOG_LEVEL, "OCR text from %s:\n%s", source, text)
     return [f"[OCR: {source}]", *text.splitlines()]
+
+
+def _is_markdown_escaped(text: str, position: int) -> bool:
+    """Return whether a character is preceded by an odd number of backslashes."""
+    backslashes = 0
+    position -= 1
+    while position >= 0 and text[position] == "\\":
+        backslashes += 1
+        position -= 1
+    return backslashes % 2 == 1
+
+
+def _find_markdown_bracket_end(text: str, start: int) -> int | None:
+    """Find a balanced closing bracket, accounting for escapes and nesting."""
+    depth = 0
+    position = start
+    while position < len(text):
+        character = text[position]
+        if character == "\\":
+            position += 2
+            continue
+        if character == "[":
+            depth += 1
+        elif character == "]":
+            depth -= 1
+            if depth == 0:
+                return position
+        position += 1
+    return None
+
+
+def _markdown_title_end(text: str, start: int) -> int | None:
+    """Find the end of a quoted or parenthesized Markdown link title."""
+    position = start
+    while position < len(text) and text[position].isspace():
+        position += 1
+    if position == start or position == len(text):
+        return None
+
+    opening = text[position]
+    if opening in {"'", '"'}:
+        position += 1
+        while position < len(text):
+            if text[position] == "\\":
+                position += 2
+                continue
+            if text[position] == opening:
+                position += 1
+                break
+            position += 1
+        else:
+            return None
+    elif opening == "(":
+        depth = 1
+        position += 1
+        while position < len(text) and depth:
+            if text[position] == "\\":
+                position += 2
+                continue
+            if text[position] == "(":
+                depth += 1
+            elif text[position] == ")":
+                depth -= 1
+            position += 1
+        if depth:
+            return None
+    else:
+        return None
+
+    while position < len(text) and text[position].isspace():
+        position += 1
+    return position + 1 if position < len(text) and text[position] == ")" else None
+
+
+def _parse_markdown_image_destination(
+    text: str, start: int
+) -> tuple[str, int] | None:
+    """Parse an inline image destination and return it with the link end."""
+    position = start
+    while position < len(text) and text[position].isspace():
+        position += 1
+    if position == len(text):
+        return None
+
+    if text[position] == "<":
+        destination_start = position + 1
+        position = destination_start
+        while position < len(text):
+            if text[position] == "\\":
+                position += 2
+                continue
+            if text[position] == ">":
+                destination = text[destination_start:position]
+                position += 1
+                if position < len(text) and text[position] == ")":
+                    return destination, position + 1
+                title_end = _markdown_title_end(text, position)
+                if title_end is not None:
+                    return destination, title_end
+                while position < len(text) and text[position].isspace():
+                    position += 1
+                if position < len(text) and text[position] == ")":
+                    return destination, position + 1
+                return None
+            position += 1
+        return None
+
+    destination_start = position
+    parenthesis_depth = 0
+    while position < len(text):
+        character = text[position]
+        if character == "\\":
+            position += 2
+            continue
+        if character == "(":
+            parenthesis_depth += 1
+        elif character == ")":
+            if parenthesis_depth == 0:
+                destination = text[destination_start:position].rstrip()
+                if destination:
+                    return destination, position + 1
+                return None
+            parenthesis_depth -= 1
+        elif character.isspace() and parenthesis_depth == 0:
+            title_end = _markdown_title_end(text, position)
+            if title_end is not None:
+                destination = text[destination_start:position].rstrip()
+                if destination:
+                    return destination, title_end
+        position += 1
+    return None
+
+
+def _markdown_image_destinations(text: str) -> Iterator[str]:
+    """Yield destinations from inline Markdown image links."""
+    position = 0
+    while True:
+        image_start = text.find("![", position)
+        if image_start < 0:
+            return
+        if _is_markdown_escaped(text, image_start):
+            position = image_start + 2
+            continue
+
+        label_end = _find_markdown_bracket_end(text, image_start + 1)
+        if label_end is None or label_end + 1 >= len(text):
+            position = image_start + 2
+            continue
+        if text[label_end + 1] != "(":
+            position = label_end + 1
+            continue
+
+        parsed = _parse_markdown_image_destination(text, label_end + 2)
+        if parsed is None:
+            position = label_end + 2
+            continue
+        destination, position = parsed
+        yield destination
+
+
+def _unescape_markdown_destination(destination: str) -> str:
+    """Unescape Markdown-escaped ASCII punctuation in a link destination."""
+    unescaped = []
+    position = 0
+    while position < len(destination):
+        if (
+            destination[position] == "\\"
+            and position + 1 < len(destination)
+            and destination[position + 1] in string.punctuation
+        ):
+            position += 1
+        unescaped.append(destination[position])
+        position += 1
+    return "".join(unescaped)
+
+
+def _extract_markdown_image_ocr(
+    path: Path, text: str, ocr_lang: str
+) -> list[str]:
+    """OCR supported local images referenced by inline Markdown image links."""
+    lines = []
+    for raw_destination in _markdown_image_destinations(text):
+        destination = unquote(_unescape_markdown_destination(raw_destination))
+        image_path = path.parent / destination
+        if not image_path.is_file():
+            parsed_destination = urlsplit(destination)
+            if parsed_destination.scheme or parsed_destination.netloc:
+                continue
+            image_path = path.parent / parsed_destination.path
+        if image_path.suffix.lower() not in SUPPORTED_IMAGE_EXTENSIONS:
+            continue
+        lines.extend(_ocr_image(image_path.read_bytes(), str(image_path), ocr_lang))
+
+    return lines
 
 
 def _extract_ooxml_images(
@@ -1654,9 +1850,13 @@ def extract_text(
         return extract_ppt_text(path)
 
     else:
-        return path.read_text(
+        text = path.read_text(
             encoding="utf-8",
             errors="replace",
-        ).splitlines()
+        )
+        lines = text.splitlines()
+        if suffix == ".md" and use_ocr:
+            lines.extend(_extract_markdown_image_ocr(path, text, ocr_lang))
+        return lines
 
     return []

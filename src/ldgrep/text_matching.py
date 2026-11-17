@@ -13,6 +13,7 @@ logger = logging.getLogger("ldgrep")
 OCR_DOCUMENT_EXTENSIONS = {
     ".doc",
     ".docx",
+    ".md",
     ".odt",
     ".odp",
     ".pdf",

@@ -352,6 +352,33 @@ def test_info_summary_reports_standalone_image_ocr(
     assert "scan.png: OCR attempted=True; matching lines=1" in info_lines[0]
 
 
+def test_ocr_markdown_image_logs_and_searches_recognized_text(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    markdown = tmp_path / "notes.md"
+    markdown.write_text("![scan](scan.png)\n", encoding="utf-8")
+    (tmp_path / "scan.png").write_bytes(b"image")
+    monkeypatch.setattr(
+        text_extraction.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(stdout=b"needle from image\n"),
+    )
+    monkeypatch.setattr(
+        ldgrep.sys,
+        "argv",
+        ["ldgrep", "needle", str(markdown), "--ocr", "--log-level", "OCR"],
+    )
+
+    assert ldgrep._run() == 0
+
+    captured = capsys.readouterr()
+    assert "needle from image" in captured.out
+    assert f"{markdown}: OCR attempted=True; matching lines=1" in captured.err
+    assert f"OCR text from {tmp_path / 'scan.png'}:\nneedle from image" in captured.err
+
+
 def test_run_clears_completed_progress_line(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],

@@ -276,6 +276,84 @@ def test_extract_text_automatically_ocr_standalone_image(
     assert calls == [(b"image bytes", str(image_path), "deu")]
 
 
+def test_extract_text_ocr_markdown_inline_local_images(
+    monkeypatch, tmp_path: Path
+) -> None:
+    markdown_path = tmp_path / "notes.md"
+    assets_path = tmp_path / "assets"
+    assets_path.mkdir()
+    image_with_spaces = assets_path / "2022-05-03 16.48.19.jpg"
+    image_with_spaces.write_bytes(b"image with spaces")
+    image_path = tmp_path / "scan copy.PNG"
+    image_path.write_bytes(b"image bytes")
+    markdown_path.write_text(
+        "Text before\n"
+        "![photo](./assets/2022-05-03 16.48.19.jpg)\n"
+        "![scan](scan%20copy.PNG)\n"
+        "![remote](https://example.test/remote.png)\n"
+        "![unsupported](diagram.svg)\n"
+        "Text after\n",
+        encoding="utf-8",
+    )
+    calls: list[tuple[bytes, str, str]] = []
+
+    def fake_ocr(image: bytes, source: str, lang: str) -> list[str]:
+        calls.append((image, source, lang))
+        return ["recognized text"]
+
+    monkeypatch.setattr(text_extraction, "_ocr_image", fake_ocr)
+
+    assert text_extraction.extract_text(
+        markdown_path, use_ocr=True, ocr_lang="deu"
+    ) == [
+        "Text before",
+        "![photo](./assets/2022-05-03 16.48.19.jpg)",
+        "![scan](scan%20copy.PNG)",
+        "![remote](https://example.test/remote.png)",
+        "![unsupported](diagram.svg)",
+        "Text after",
+        "recognized text",
+        "recognized text",
+    ]
+    assert calls == [
+        (b"image with spaces", str(image_with_spaces), "deu"),
+        (b"image bytes", str(image_path), "deu"),
+    ]
+
+
+def test_extract_text_ocr_markdown_images_with_special_filenames(
+    monkeypatch, tmp_path: Path
+) -> None:
+    filenames_and_destinations = [
+        ("photo (1) [final].jpg", "photo (1) [final].jpg"),
+        ("escaped (2).png", r"escaped \(2\).png"),
+        ("angle [3].gif", "<angle [3].gif>"),
+        ("with title.webp", '<with title.webp> "caption"'),
+    ]
+    image_links = []
+    expected_calls = []
+    for index, (filename, destination) in enumerate(filenames_and_destinations):
+        image_path = tmp_path / filename
+        image_path.write_bytes(filename.encode())
+        image_links.append(f"![image {index}]({destination})")
+        expected_calls.append((filename.encode(), str(image_path), "deu"))
+
+    markdown_path = tmp_path / "notes.md"
+    markdown_path.write_text("\n".join(image_links), encoding="utf-8")
+    calls: list[tuple[bytes, str, str]] = []
+
+    def fake_ocr(image: bytes, source: str, lang: str) -> list[str]:
+        calls.append((image, source, lang))
+        return [Path(source).name]
+
+    monkeypatch.setattr(text_extraction, "_ocr_image", fake_ocr)
+
+    assert text_extraction.extract_text(
+        markdown_path, use_ocr=True, ocr_lang="deu"
+    ) == [*image_links, *(filename for filename, _ in filenames_and_destinations)]
+    assert calls == expected_calls
+
+
 @pytest.mark.parametrize(
     ("filename", "expected_text"),
     [
