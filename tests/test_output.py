@@ -78,6 +78,19 @@ def test_progress_is_disabled_for_verbose_logging(
     assert not output.progress_enabled()
 
 
+def test_progress_is_disabled_for_ocr_logging(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        output,
+        "sys",
+        SimpleNamespace(stdout=TerminalStream(), stderr=TerminalStream()),
+    )
+    monkeypatch.setattr(logging.getLogger("ldgrep"), "level", output.OCR_LOG_LEVEL)
+
+    assert not output.progress_enabled()
+
+
 def test_hyperlink_formats_path_as_terminal_uri(tmp_path: Path) -> None:
     path = tmp_path / "fake document.txt"
 

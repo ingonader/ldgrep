@@ -3,6 +3,9 @@ import shutil
 import sys
 from pathlib import Path
 
+OCR_LOG_LEVEL = 5
+logging.addLevelName(OCR_LOG_LEVEL, "OCR")
+
 
 def configure_colors(mode: str) -> tuple[str, str]:
     """Choose ANSI color codes based on the requested color mode.

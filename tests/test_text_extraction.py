@@ -9,6 +9,7 @@ import zipfile
 import pytest
 
 from ldgrep import text_extraction
+from ldgrep.output import OCR_LOG_LEVEL
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 
@@ -231,6 +232,29 @@ def test_ocr_image_invokes_tesseract(
         )
     ]
     assert "OCR completed for image.png: extracted 15 text characters" in caplog.text
+    assert "recognized text" not in caplog.text
+
+
+def test_ocr_log_level_includes_recognized_text(
+    monkeypatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setattr(
+        text_extraction.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(stdout=b"recognized text\n"),
+    )
+    caplog.set_level(OCR_LOG_LEVEL, logger="ldgrep")
+
+    text_extraction._ocr_image(b"image bytes", "image.png", lang="eng")
+
+    ocr_records = [
+        record for record in caplog.records if record.levelno == OCR_LOG_LEVEL
+    ]
+    assert len(ocr_records) == 1
+    assert ocr_records[0].levelname == "OCR"
+    assert ocr_records[0].getMessage() == (
+        "OCR text from image.png:\nrecognized text"
+    )
 
 
 def test_extract_text_automatically_ocr_standalone_image(

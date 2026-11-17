@@ -25,6 +25,7 @@ from .file_discovery import (
 )
 from .regex_utils import DEFAULT_EXCLUDE_DIRS_SPEC, compile_exclude_patterns
 from .output import (
+    OCR_LOG_LEVEL,
     print_error,
     progress_enabled,
     show_search_progress,
@@ -42,7 +43,7 @@ def configure_logging(level: str = "WARNING") -> None:
     suppressed while errors remain visible.
 
     Args:
-        level: Standard logging level name used for ldgrep messages.
+        level: Standard logging level name or the custom `OCR` level.
     """
     global _logging_handler
 
@@ -52,7 +53,9 @@ def configure_logging(level: str = "WARNING") -> None:
     _logging_handler = logging.StreamHandler(sys.stderr)
     _logging_handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
     logger.addHandler(_logging_handler)
-    logger.setLevel(getattr(logging, level))
+    logger.setLevel(
+        OCR_LOG_LEVEL if level == "OCR" else getattr(logging, level)
+    )
     logger.propagate = False
 
     # Keep third-party parser warnings from obscuring search output.
@@ -348,12 +351,13 @@ def _run() -> int:
     parser.add_argument(
         "--log-level",
         type=str.upper,
-        choices=("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"),
+        choices=("OCR", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"),
         default="WARNING",
         metavar="LEVEL",
         help=(
-            "Set logging detail to DEBUG, INFO, WARNING (default), ERROR, or "
-            "CRITICAL. Logs are written to standard error."
+            "Set logging detail to OCR (include recognized text), DEBUG, INFO, "
+            "WARNING (default), ERROR, or CRITICAL. Logs are written to standard "
+            "error."
         ),
     )
 

@@ -12,6 +12,7 @@ import zipfile
 import xml.etree.ElementTree as ET
 
 from .file_discovery import SUPPORTED_IMAGE_EXTENSIONS
+from .output import OCR_LOG_LEVEL
 
 OOXML_WORD_NAMESPACE = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 OOXML_DRAWING_NAMESPACE = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
@@ -132,6 +133,17 @@ def _ocr_image(image: bytes, source: str, lang: str) -> list[str]:
         source,
         len(text),
     )
+    activity = _current_ocr_activity.get()
+    if activity is not None and activity.source is not None:
+        logger.log(
+            OCR_LOG_LEVEL,
+            "%s: OCR text from %s:\n%s",
+            activity.source,
+            source,
+            text,
+        )
+    else:
+        logger.log(OCR_LOG_LEVEL, "OCR text from %s:\n%s", source, text)
     return [f"[OCR: {source}]", *text.splitlines()]
 
 

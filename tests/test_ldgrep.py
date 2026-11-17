@@ -240,7 +240,7 @@ def test_run_passes_language_for_selected_images_without_ocr_flag(
 
 
 @pytest.mark.parametrize(
-    ("level", "expected"), [("info", "INFO"), ("DEBUG", "DEBUG")]
+    ("level", "expected"), [("info", "INFO"), ("DEBUG", "DEBUG"), ("ocr", "OCR")]
 )
 def test_run_configures_requested_log_level(
     monkeypatch: pytest.MonkeyPatch,
@@ -257,6 +257,14 @@ def test_run_configures_requested_log_level(
 
     assert ldgrep._run() == 1
     assert configured_levels == [expected]
+
+
+def test_configure_logging_sets_custom_ocr_level() -> None:
+    from ldgrep.output import OCR_LOG_LEVEL
+
+    ldgrep.configure_logging("OCR")
+
+    assert logging.getLogger("ldgrep").level == OCR_LOG_LEVEL
 
 
 def test_info_logs_one_summary_per_file_and_archive_member(

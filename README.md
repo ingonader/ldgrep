@@ -117,7 +117,9 @@ Logging is written to standard error. By default, only warnings and more
 serious messages are shown, so normal search output is unchanged. Set
 `--log-level INFO` for one summary per processed file (including archive
 members), or `--log-level DEBUG` for OCR decisions and document/image
-diagnostics. Progress bars are disabled at INFO and DEBUG.
+diagnostics. Use `--log-level OCR` for those details plus all text extracted
+by OCR. OCR-level logs may contain sensitive document text. Progress bars are
+disabled at INFO, DEBUG, and OCR.
 
 ## Command-line options
 
@@ -141,7 +143,7 @@ Run `ldgrep --help` (or `uvx ldgrep --help`) to see the options in the terminal.
 | `--matchlen N` | `-l N` | Limit displayed line excerpts to approximately `N` characters, centered on each match. A match longer than this value is kept whole. Context-only lines are shortened from the beginning. Must be a positive integer. |
 | `--sort KEY[ r]` |  | Sort ordinary files and archives before searching. `a` sorts alphabetically by fully resolved path; `c` sorts by change time; `t` by modification time (default); `u` by last access time. Time sorts place newest files first. Add `r` to reverse the selected order, e.g. `--sort tr` searches oldest-modified files first. `--sort r` reverses alphabetical order. |
 | `--color MODE` | `-c MODE` | Set match coloring to `auto`, `always`, or `never`. `auto` (the default) uses color when standard output is a terminal. |
-| `--log-level LEVEL` |  | Set logging detail to `DEBUG`, `INFO`, `WARNING` (default), `ERROR`, or `CRITICAL`. Logs are written to standard error. INFO reports one summary per processed file; DEBUG includes OCR decisions and diagnostics. Progress bars are disabled at INFO and DEBUG. |
+| `--log-level LEVEL` |  | Set logging detail to `OCR`, `DEBUG`, `INFO`, `WARNING` (default), `ERROR`, or `CRITICAL`. Logs are written to standard error. INFO reports one summary per processed file; DEBUG includes OCR decisions and diagnostics; OCR also prints text extracted by OCR. Progress bars are disabled at INFO, DEBUG, and OCR. |
 | `--help` | `-h` | Show the help text and exit. |
 
 Context counts must be non-negative. The `-C` option takes precedence over `-A` and `-B`.
