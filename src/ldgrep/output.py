@@ -28,6 +28,12 @@ def configure_colors(mode: str) -> tuple[str, str]:
 
 
 def progress_enabled() -> bool:
+    """Return whether terminal progress output is enabled.
+
+    Returns:
+        True when the ldgrep logger is configured for progress messages and both
+        standard streams are attached to a TTY.
+    """
     return (
         logging.getLogger("ldgrep").getEffectiveLevel() > logging.INFO
         and sys.stdout.isatty()
@@ -49,6 +55,11 @@ def print_file(link_path: Path, output_name: str) -> None:
 
 
 def print_error(message: str) -> None:
+    """Print an error to stderr and mirror it to stdout when appropriate.
+
+    Args:
+        message: Text to display to the user.
+    """
     print(message, file=sys.stderr)
     if not sys.stdout.isatty() and sys.stderr.isatty():
         print(message, file=sys.stdout)

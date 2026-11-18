@@ -45,7 +45,16 @@ def _contains_newline(pattern: str) -> bool:
 
 
 def compile_search_pattern(pattern: str, ignore_case: bool = False) -> re.Pattern:
-    """Compile a search expression with multiline anchors when it spans lines."""
+    """Compile a regex with multiline support when the pattern spans lines.
+
+    Args:
+        pattern: Regular expression source to compile.
+        ignore_case: Whether to match case-insensitively.
+
+    Returns:
+        The compiled pattern, with `re.MULTILINE` enabled for newline-containing
+        expressions.
+    """
     flags = re.IGNORECASE if ignore_case else 0
 
     if _contains_newline(pattern):
@@ -57,7 +66,14 @@ def compile_search_pattern(pattern: str, ignore_case: bool = False) -> re.Patter
 def merge_ranges(
     ranges: list[tuple[int, int]],
 ) -> list[tuple[int, int]]:
-    """Combine overlapping or adjacent inclusive integer ranges."""
+    """Merge overlapping and adjacent inclusive integer ranges.
+
+    Args:
+        ranges: Integer ranges in `(start, end)` form.
+
+    Returns:
+        A sorted list of merged ranges.
+    """
     merged = []
 
     for start, end in sorted(ranges):
@@ -140,7 +156,18 @@ def highlight_match_spans(
     red: str,
     reset: str,
 ) -> str:
-    """Return a line with the supplied match spans optionally highlighted."""
+    """Wrap the matches in a line with the configured highlight escape codes.
+
+    Args:
+        line: Source line to render.
+        spans: Zero-based `(start, end)` match ranges within the line.
+        red: ANSI start sequence for highlighted matches.
+        reset: ANSI reset sequence to end a highlight.
+
+    Returns:
+        The original line, optionally with its matching ranges wrapped in color
+        codes.
+    """
     if not red:
         return line
 

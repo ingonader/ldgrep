@@ -104,12 +104,31 @@ def parse_sort_spec(value: str) -> str:
 class PreserveNewlinesFormatter(argparse.HelpFormatter):
 
     def _fill_text(self, text, width, indent):
+        """Wrap help text while preserving paragraph and line breaks.
+
+        Args:
+            text: Help text to wrap.
+            width: Maximum width for each wrapped line.
+            indent: Prefix applied to each resulting line.
+
+        Returns:
+            The formatted text with one wrapped paragraph per original line.
+        """
         return "\n".join(
             textwrap.fill(line, width, initial_indent=indent, subsequent_indent=indent)
             for line in text.splitlines()
         )
 
     def _split_lines(self, text, width):
+        """Split help text into wrapped lines without collapsing line breaks.
+
+        Args:
+            text: Help text to split and wrap.
+            width: Maximum width for each line.
+
+        Returns:
+            A list of wrapped lines for argparse rendering.
+        """
         return [
             wrapped_line
             for line in text.splitlines()
@@ -119,6 +138,11 @@ class PreserveNewlinesFormatter(argparse.HelpFormatter):
 
 class ldgrepArgumentParser(argparse.ArgumentParser):
     def error(self, message: str) -> None:
+        """Display a formatted CLI usage error and exit.
+
+        Args:
+            message: Description of the argument validation problem.
+        """
         print_error(self.format_usage().rstrip("\n"))
         print_error(f"{self.prog}: error: {message}")
         self.exit(2)

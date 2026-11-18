@@ -150,7 +150,16 @@ def _ocr_image(image: bytes, source: str, lang: str) -> list[str]:
 
 
 def _is_markdown_escaped(text: str, position: int) -> bool:
-    """Return whether a character is preceded by an odd number of backslashes."""
+    """Check whether a Markdown token is escaped by an odd backslash count.
+
+    Args:
+        text: Markdown source being inspected.
+        position: Index of the token whose escape status should be checked.
+
+    Returns:
+        True when the character before the position is escaped by an odd number
+        of backslashes.
+    """
     backslashes = 0
     position -= 1
     while position >= 0 and text[position] == "\\":
@@ -160,7 +169,15 @@ def _is_markdown_escaped(text: str, position: int) -> bool:
 
 
 def _find_markdown_bracket_end(text: str, start: int) -> int | None:
-    """Find a balanced closing bracket, accounting for escapes and nesting."""
+    """Find the matching closing bracket for a Markdown label.
+
+    Args:
+        text: Markdown source to inspect.
+        start: Index of the opening `[` bracket.
+
+    Returns:
+        The index of the matching closing bracket, or `None` if unmatched.
+    """
     depth = 0
     position = start
     while position < len(text):
@@ -179,7 +196,17 @@ def _find_markdown_bracket_end(text: str, start: int) -> int | None:
 
 
 def _markdown_title_end(text: str, start: int) -> int | None:
-    """Find the end of a quoted or parenthesized Markdown link title."""
+    """Find the end of a Markdown title that follows a link destination.
+
+    Args:
+        text: Markdown source containing an optional link title.
+        start: Index at the first whitespace or opening quote immediately after a
+            destination.
+
+    Returns:
+        The index immediately after the closing title delimiter, or `None` if no
+        valid title is present.
+    """
     position = start
     while position < len(text) and text[position].isspace():
         position += 1
@@ -224,7 +251,16 @@ def _markdown_title_end(text: str, start: int) -> int | None:
 def _parse_markdown_image_destination(
     text: str, start: int
 ) -> tuple[str, int] | None:
-    """Parse an inline image destination and return it with the link end."""
+    """Parse a Markdown image destination and the position after it.
+
+    Args:
+        text: Markdown source for the image syntax.
+        start: Index immediately after the opening `(` of the image URL.
+
+    Returns:
+        A `(destination, end_index)` tuple when a valid destination is parsed, or
+        `None` when the destination is malformed.
+    """
     position = start
     while position < len(text) and text[position].isspace():
         position += 1
@@ -281,7 +317,14 @@ def _parse_markdown_image_destination(
 
 
 def _markdown_image_destinations(text: str) -> Iterator[str]:
-    """Yield destinations from inline Markdown image links."""
+    """Yield destinations from inline Markdown image links.
+
+    Args:
+        text: Markdown source to scan for image syntax.
+
+    Yields:
+        The URL or path destination for each inline image link.
+    """
     position = 0
     while True:
         image_start = text.find("![", position)
@@ -326,7 +369,16 @@ def _unescape_markdown_destination(destination: str) -> str:
 def _extract_markdown_image_ocr(
     path: Path, text: str, ocr_lang: str
 ) -> list[str]:
-    """OCR supported local images referenced by inline Markdown image links."""
+    """OCR images referenced from inline Markdown image syntax.
+
+    Args:
+        path: Markdown file containing the image references.
+        text: Markdown source to scan for image links.
+        ocr_lang: Tesseract language code or `+`-separated language codes.
+
+    Returns:
+        OCR text recovered from any supported referenced local image files.
+    """
     lines = []
     for raw_destination in _markdown_image_destinations(text):
         destination = unquote(_unescape_markdown_destination(raw_destination))
@@ -450,6 +502,12 @@ def _extract_ooxml_paragraph_text(
     parts = []
 
     def visit(element: ET.Element, is_root: bool = False) -> None:
+        """Recursively collect text and formatting markers from an OOXML node.
+
+        Args:
+            element: XML element to inspect.
+            is_root: Whether the current element is the paragraph root node.
+        """
         if not is_root and element.tag == paragraph_tag:
             return
 
@@ -773,6 +831,11 @@ def _extract_pdf_pypdf_features(reader) -> list[str]:
     lines.extend(_extract_pdf_metadata(info, xmp_bytes))
 
     def append_bookmarks(bookmarks) -> None:
+        """Append bookmark titles from a nested PDF outline structure.
+
+        Args:
+            bookmarks: PDF outline entries or nested lists returned by pypdf.
+        """
         for bookmark in bookmarks:
             if isinstance(bookmark, list):
                 append_bookmarks(bookmark)

@@ -32,6 +32,13 @@ ARCHIVE_SUFFIXES = (
 
 
 def show_candidate_id_progress(cnt: int, candidate_name: str) -> None:
+    """Report progress while discovering candidate files.
+
+    Args:
+        cnt: Number of matching candidates found so far.
+        candidate_name: Human-readable label for the candidate type, such as
+            "files" or "archives".
+    """
     if not progress_enabled():
         return
     msg = f"Searching for candidate files: Found {str(cnt)} {candidate_name}..."
@@ -39,7 +46,16 @@ def show_candidate_id_progress(cnt: int, candidate_name: str) -> None:
 
 
 def sort_paths(paths: set[Path], sort_spec: str) -> list[Path]:
-    """Sort resolved candidate paths by name or file timestamp."""
+    """Sort candidate paths by the requested key and direction.
+
+    Args:
+        paths: Resolved filesystem paths to sort.
+        sort_spec: Sort key (`a`, `c`, `t`, or `u`) with an optional `r` flag to
+            reverse the result.
+
+    Returns:
+        Paths sorted alphabetically or by the selected timestamp attribute.
+    """
     sort_key = next((option for option in sort_spec if option in "actu"), "a")
     reverse = "r" in sort_spec
     sorted_paths = sorted(paths)
