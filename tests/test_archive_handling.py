@@ -300,6 +300,7 @@ def test_is_searchable_archive_member_excludes_directories(
 
 def test_is_searchable_archive_member_records_excluded_directory() -> None:
     excluded_paths: set[str] = set()
+    excluded_path_patterns: dict[str, str] = {}
 
     assert not archive_handling.is_searchable_archive_member(
         "renv/library/moby-dick.md",
@@ -308,6 +309,10 @@ def test_is_searchable_archive_member_records_excluded_directory() -> None:
         exclude_patterns=[re.compile(r"/renv/library/")],
         excluded_paths=excluded_paths,
         archive_path=Path("Archive.zip"),
+        excluded_path_patterns=excluded_path_patterns,
     )
 
     assert excluded_paths == {"Archive.zip!/renv/library"}
+    assert excluded_path_patterns == {
+        "Archive.zip!/renv/library": r"/renv/library/"
+    }

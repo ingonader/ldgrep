@@ -4,6 +4,7 @@ import argparse
 import textwrap
 import re
 import sys
+from collections import Counter
 from pathlib import Path
 import tempfile
 
@@ -249,8 +250,14 @@ def _run() -> int:
             + "A leading '+' adds patterns to the defaults.\n"
             + "A leading '^' removes matching defaults (for example, '^renv,venv' removes matching "
             + "renv and venv defaults).\n"
-            + "Paths excluded during discovery are summarized in the output."
+            + "Excluded paths are summarized by pattern; use --list-excluded to list them."
         ),
+    )
+
+    parser.add_argument(
+        "--list-excluded",
+        action="store_true",
+        help="List each excluded directory path instead of summarizing by pattern.",
     )
 
     parser.add_argument(
@@ -439,6 +446,7 @@ def _run() -> int:
         parser.error(f"Invalid directory exclusion regular expression: {exc}")
 
     excluded_paths: set[str] = set()
+    excluded_path_patterns: dict[str, str] = {}
 
     # Discover ordinary files and archives separately because their contents
     # require different extraction paths.
@@ -449,6 +457,7 @@ def _run() -> int:
         args.sort,
         exclude_patterns,
         excluded_paths,
+        excluded_path_patterns,
     )
     files_unique_extensions = {path.suffix for path in files}
     archives = (
@@ -458,6 +467,7 @@ def _run() -> int:
             args.sort,
             exclude_patterns,
             excluded_paths,
+            excluded_path_patterns,
         )
         if args.include_archives
         else []
@@ -484,12 +494,21 @@ def _run() -> int:
                 exclude_patterns,
                 excluded_paths,
                 archive_path,
+                excluded_path_patterns,
             )
         )
 
     if excluded_paths:
-        paths = ", ".join(sorted(excluded_paths))
-        print(f"Excluded {len(excluded_paths)} matching paths: {paths}")
+        if args.list_excluded:
+            paths = ", ".join(sorted(excluded_paths))
+            print(f"Excluded {len(excluded_paths)} matching paths: {paths}")
+        else:
+            counts = Counter(excluded_path_patterns.values())
+            summary = ", ".join(
+                f"{pattern.replace(r'\.', '.')} ({counts[pattern]})"
+                for pattern in sorted(counts)
+            )
+            print(f"Excluded matching patterns: {summary}")
 
     if not files and not archives:
         print_error("No supported files found.")

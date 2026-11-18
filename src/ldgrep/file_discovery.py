@@ -5,7 +5,7 @@ from pathlib import Path
 
 from .output import print_error, progress_enabled
 from .regex_utils import (
-    find_excluded_directory_path,
+    find_excluded_directory_match,
     parse_regex_spec,
 )
 from .archive_handling import (
@@ -132,6 +132,7 @@ def collect_files(
     sort_spec: str = "t",
     exclude_patterns: list[re.Pattern[str]] | None = None,
     excluded_paths: set[str] | None = None,
+    excluded_path_patterns: dict[str, str] | None = None,
 ) -> list[Path]:
     """Find unique files matching extension, name, and directory filters.
 
@@ -153,6 +154,8 @@ def collect_files(
             directory paths before they are traversed.
         excluded_paths: Optional set populated with paths excluded by these
             directory patterns.
+        excluded_path_patterns: Optional mapping of excluded paths to the
+            pattern that matched them.
 
     Returns:
         Resolved matching file paths in the requested order.
@@ -172,13 +175,18 @@ def collect_files(
 
         if path.is_file():
             relative_path = Path(os.path.relpath(path.absolute(), Path.cwd()))
-            excluded_directory = find_excluded_directory_path(
+            excluded_match = find_excluded_directory_match(
                 relative_path.parent, exclude_patterns
             )
-            if excluded_directory is not None and excluded_paths is not None:
-                excluded_paths.add(str(excluded_directory))
+            if excluded_match is not None and excluded_paths is not None:
+                excluded_directory, exclude_pattern = excluded_match
+                excluded_path = str(excluded_directory)
+                if excluded_path not in excluded_paths:
+                    excluded_paths.add(excluded_path)
+                    if excluded_path_patterns is not None:
+                        excluded_path_patterns[excluded_path] = exclude_pattern.pattern
             if (
-                excluded_directory is None
+                excluded_match is None
                 and is_allowed_extension(path.suffix, allowed_extensions)
                 and (
                     filename_pattern is None
@@ -192,30 +200,40 @@ def collect_files(
 
         if path.is_dir():
             search_root = path.absolute()
-            excluded_root = find_excluded_directory_path(path.name, exclude_patterns)
+            excluded_root = find_excluded_directory_match(path.name, exclude_patterns)
             if excluded_root is not None:
                 if excluded_paths is not None:
-                    excluded_paths.add(
-                        str(Path(os.path.relpath(search_root, Path.cwd())))
-                    )
+                    excluded_directory, exclude_pattern = excluded_root
+                    excluded_path = str(Path(os.path.relpath(search_root, Path.cwd())))
+                    if excluded_path not in excluded_paths:
+                        excluded_paths.add(excluded_path)
+                        if excluded_path_patterns is not None:
+                            excluded_path_patterns[excluded_path] = (
+                                exclude_pattern.pattern
+                            )
             else:
                 for current_root, dirnames, filenames in os.walk(search_root):
                     current_path = Path(current_root)
                     relative_root = current_path.relative_to(search_root)
                     kept_dirnames = []
                     for dirname in dirnames:
-                        excluded_directory = find_excluded_directory_path(
+                        excluded_match = find_excluded_directory_match(
                             relative_root / dirname, exclude_patterns
                         )
-                        if excluded_directory is None:
+                        if excluded_match is None:
                             kept_dirnames.append(dirname)
                         elif excluded_paths is not None:
-                            excluded_paths.add(
-                                str(
-                                    Path(os.path.relpath(search_root, Path.cwd()))
-                                    / Path(str(excluded_directory))
-                                )
+                            excluded_directory, exclude_pattern = excluded_match
+                            excluded_path = str(
+                                Path(os.path.relpath(search_root, Path.cwd()))
+                                / Path(str(excluded_directory))
                             )
+                            if excluded_path not in excluded_paths:
+                                excluded_paths.add(excluded_path)
+                                if excluded_path_patterns is not None:
+                                    excluded_path_patterns[excluded_path] = (
+                                        exclude_pattern.pattern
+                                    )
                     dirnames[:] = kept_dirnames
                     for filename in filenames:
                         candidate = current_path / filename

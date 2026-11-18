@@ -98,6 +98,7 @@ def test_run_searches_ordinary_files_with_parsed_options(
         sort_spec: str,
         exclude_patterns: list[re.Pattern[str]],
         excluded_paths: set[str],
+        excluded_path_patterns: dict[str, str],
     ) -> list[Path]:
         collection.update(
             paths=paths,
@@ -106,6 +107,7 @@ def test_run_searches_ordinary_files_with_parsed_options(
             sort_spec=sort_spec,
             exclude_patterns=exclude_patterns,
             excluded_paths=excluded_paths,
+            excluded_path_patterns=excluded_path_patterns,
         )
         return [first, second]
 
@@ -449,10 +451,57 @@ def test_run_reports_only_paths_actually_excluded(
     assert ldgrep._run() == 0
 
     captured = capsys.readouterr()
+    assert "Excluded matching patterns: custom (1)" in captured.out
+    assert "nested" not in captured.out
+    assert "excluded.md" not in captured.out
+
+
+def test_run_lists_excluded_paths_when_requested(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    included = tmp_path / "included.md"
+    excluded = tmp_path / "custom" / "nested" / "excluded.md"
+    excluded.parent.mkdir(parents=True)
+    included.write_text("needle\n")
+    excluded.write_text("needle\n")
+    _prepare_cli(
+        monkeypatch,
+        "needle",
+        str(tmp_path),
+        "--exclude",
+        "+custom",
+        "--list-excluded",
+    )
+    monkeypatch.setattr(ldgrep, "search_file", lambda *args, **kwargs: 1)
+
+    assert ldgrep._run() == 0
+
+    captured = capsys.readouterr()
     assert "Excluded 1 matching paths:" in captured.out
     assert "custom" in captured.out
     assert "nested" not in captured.out
     assert "excluded.md" not in captured.out
+
+
+def test_run_summarizes_excluded_paths_by_pattern_count(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "first" / ".git").mkdir(parents=True)
+    (tmp_path / "second" / ".git").mkdir(parents=True)
+    (tmp_path / "included.md").write_text("needle\n")
+    _prepare_cli(monkeypatch, "needle", str(tmp_path))
+    monkeypatch.setattr(ldgrep, "search_file", lambda *args, **kwargs: 1)
+
+    assert ldgrep._run() == 0
+
+    captured = capsys.readouterr()
+    assert "/.git/ (2)" in captured.out
+    assert r"/\.git/ (2)" not in captured.out
+    assert str(tmp_path) not in captured.out
 
 
 def test_run_searches_matching_archive_members(

@@ -167,15 +167,33 @@ def find_excluded_directory_path(
     Returns:
         The matching directory prefix, or ``None`` if no directory is excluded.
     """
+    match = find_excluded_directory_match(relative_path, exclude_patterns)
+    return match[0] if match is not None else None
+
+
+def find_excluded_directory_match(
+    relative_path: str | PurePosixPath,
+    exclude_patterns: list[re.Pattern[str]],
+) -> tuple[PurePosixPath, re.Pattern[str]] | None:
+    """Find the first directory prefix and exclusion pattern that match.
+
+    Each directory prefix is checked in its plain, trailing-slash, and
+    slash-delimited forms. Prefixes and patterns are considered in order.
+
+    Args:
+        relative_path: Relative path whose directory components to check.
+        exclude_patterns: Compiled expressions used to match directory paths.
+
+    Returns:
+        A tuple containing the matching directory prefix and regex pattern, or
+        ``None`` if no directory is excluded.
+    """
     path = PurePosixPath(str(relative_path).replace("\\", "/"))
     parts = [part for part in path.parts if part not in {".", "/", ""}]
     for end in range(1, len(parts) + 1):
         prefix = "/".join(parts[:end])
         candidates = (prefix, prefix + "/", "/" + prefix + "/")
-        if any(
-            pattern.search(candidate)
-            for pattern in exclude_patterns
-            for candidate in candidates
-        ):
-            return PurePosixPath(prefix)
+        for pattern in exclude_patterns:
+            if any(pattern.search(candidate) for candidate in candidates):
+                return PurePosixPath(prefix), pattern
     return None
