@@ -230,8 +230,8 @@ def search_file(
         link_path: Optional real file path used as the clickable hyperlink
             target when displaying an archive member.
         use_ocr: Whether to OCR embedded images in supported document formats.
-        ocr_min_text: Minimum total PDF page-text characters before falling
-            back to whole-page OCR.
+        ocr_min_text: Minimum PDF page-text characters before using
+            embedded-image OCR instead of whole-page OCR for that page.
         ocr_lang: Tesseract language code or `+`-separated language codes.
 
     Returns:

@@ -104,10 +104,11 @@ selected, such as `-e png,jpg`.
 Use single quotes around patterns containing shell metacharacters such as `|`, `*`, parentheses, or spaces so the shell passes the complete regular expression to `ldgrep`. Expressions use Python's regular-expression syntax.
 
 Enable OCR for inline local images in Markdown, embedded images in supported
-Office and OpenDocument files, and PDFs with `--ocr`. Whole-page PDF OCR is
-selected when the sum of extracted text characters across all pages is below
-100 by default; otherwise only embedded images are OCRed. Change this threshold
-with `--ocr-min-text CHARS`. This flag controls OCR inside documents;
+Office and OpenDocument files, and PDFs with `--ocr`. PDF text is extracted
+normally on every page. With OCR enabled, a page is OCRed as a whole when its
+extracted text contains fewer than 100 characters by default; otherwise only
+embedded images on that page are OCRed. Change this per-page threshold with
+`--ocr-min-text CHARS`. This flag controls OCR inside documents;
 standalone image files selected with `-e` are always OCRed. OCR requires the
 Tesseract executable. OCR for legacy `.doc`, `.ppt`, and `.xls` files also
 requires LibreOffice. The default OCR languages are English and German; use
@@ -136,8 +137,8 @@ Run `ldgrep --help` (or `uvx ldgrep --help`) to see the options in the terminal.
 | `--list-excluded` |  | List each excluded directory path instead of showing the pattern summary. |
 | `--ignore-case` | `-i` | Ignore case in the content pattern, file-name pattern, and directory-exclusion patterns. |
 | `--include-archives` | `-a` | Also search supported archive files found at the given paths. Ordinary files are searched first. |
-| `--ocr` |  | Use Tesseract to extract text from inline local images in Markdown, and embedded images in Office and OpenDocument files and PDFs. Standalone images selected with `-e` are OCRed automatically. For PDFs, OCR whole pages when total extracted text across all pages is below the configured threshold; otherwise OCR embedded images. |
-| `--ocr-min-text CHARS` |  | With `--ocr`, OCR all PDF pages when the total extracted page text contains fewer than this many characters. Default: `100`; must be non-negative. |
+| `--ocr` |  | Use Tesseract to extract text from inline local images in Markdown, and embedded images in Office and OpenDocument files and PDFs. Standalone images selected with `-e` are OCRed automatically. For PDFs, OCR a whole page when its extracted text is below the configured threshold; otherwise OCR its embedded images. |
+| `--ocr-min-text CHARS` |  | With `--ocr`, OCR each PDF page as a whole when its extracted text contains fewer than this many characters. Default: `100`; must be non-negative. |
 | `--ocr-lang LANG` |  | Tesseract language code(s), joined with `+` (for example, `eng+deu`). Passed directly to `tesseract` command. Default: `eng+deu`. |
 | `--before-context N` | `-B N` | Print up to `N` lines before each matching line. Default: `0`. |
 | `--after-context N` | `-A N` | Print up to `N` lines after each matching line. Default: `0`. |

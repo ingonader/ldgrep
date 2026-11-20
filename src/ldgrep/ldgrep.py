@@ -54,9 +54,7 @@ def configure_logging(level: str = "WARNING") -> None:
     _logging_handler = logging.StreamHandler(sys.stderr)
     _logging_handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
     logger.addHandler(_logging_handler)
-    logger.setLevel(
-        OCR_LOG_LEVEL if level == "OCR" else getattr(logging, level)
-    )
+    logger.setLevel(OCR_LOG_LEVEL if level == "OCR" else getattr(logging, level))
     logger.propagate = False
 
     # Keep third-party parser warnings from obscuring search output.
@@ -296,8 +294,8 @@ def _run() -> int:
         default=100,
         metavar="CHARS",
         help=(
-            "For PDFs, OCR whole pages when the total extracted page text "
-            + "contains fewer than CHARS characters. Default: 100."
+            "For PDFs, OCR each whole page when its extracted text contains "
+            + "fewer than CHARS characters. Default: 100."
         ),
     )
 

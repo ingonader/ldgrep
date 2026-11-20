@@ -966,13 +966,13 @@ def extract_pdf_text_pymupdf(path: Path) -> list[str]:
 
 
 def _extract_pdf_ocr(path: Path, min_text: int, ocr_lang: str) -> list[str]:
-    """OCR embedded PDF images, or whole pages when extracted text is sparse.
+    """OCR sparse-text PDF pages or embedded images on text-rich pages.
 
     Args:
         path: PDF file to inspect.
-        min_text: Minimum total character count of extracted page text.
-            When the document contains fewer characters, OCR each whole page;
-            otherwise OCR embedded images only.
+        min_text: Minimum character count of extracted text for each page.
+            Pages below this count are OCRed in full; other pages have only
+            their embedded images OCRed.
         ocr_lang: Tesseract language code or `+`-separated language codes.
 
     Returns:
@@ -995,26 +995,23 @@ def _extract_pdf_ocr(path: Path, min_text: int, ocr_lang: str) -> list[str]:
         page_text_lengths = [
             len((page.get_text("text") or "").strip()) for page in pages
         ]
-        text_length = sum(page_text_lengths)
-        for page_number, page_length in enumerate(page_text_lengths, start=1):
+        seen_images: set[int] = set()
+        for page_number, (page, page_length) in enumerate(
+            zip(pages, page_text_lengths, strict=True), start=1
+        ):
             _debug_ocr(
                 "PDF page %d: extracted %d text characters",
                 page_number,
                 page_length,
             )
-        _debug_ocr(
-            "PDF aggregate: extracted %d text characters; threshold is %d",
-            text_length,
-            min_text,
-        )
-        if text_length < min_text:
-            _debug_ocr(
-                "PDF OCR decision: whole-page OCR (aggregate %d < threshold %d)",
-                text_length,
-                min_text,
-            )
-            for page_number, page in enumerate(pages, start=1):
-                _debug_ocr("Whole-page OCR selected for PDF page %d", page_number)
+            if page_length < min_text:
+                _debug_ocr(
+                    "PDF page %d OCR decision: whole-page OCR "
+                    "(%d < threshold %d)",
+                    page_number,
+                    page_length,
+                    min_text,
+                )
                 pixmap = page.get_pixmap(
                     matrix=pymupdf.Matrix(300 / 72, 300 / 72),
                     alpha=False,
@@ -1026,16 +1023,15 @@ def _extract_pdf_ocr(path: Path, min_text: int, ocr_lang: str) -> list[str]:
                         ocr_lang,
                     )
                 )
-            return lines
+                continue
 
-        _debug_ocr(
-            "PDF OCR decision: embedded-image OCR only "
-            "(aggregate %d >= threshold %d)",
-            text_length,
-            min_text,
-        )
-        seen_images: set[int] = set()
-        for page_number, page in enumerate(pages, start=1):
+            _debug_ocr(
+                "PDF page %d OCR decision: embedded-image OCR only "
+                "(%d >= threshold %d)",
+                page_number,
+                page_length,
+                min_text,
+            )
             page_images = page.get_images(full=True)
             for image_info in page_images:
                 xref = image_info[0]
@@ -1075,8 +1071,8 @@ def extract_pdf_text(
     Args:
         path: PDF file to read.
         use_ocr: Whether to OCR embedded images and pages with sparse text.
-        ocr_min_text: Minimum extracted page-text character count before
-            falling back to whole-page OCR.
+        ocr_min_text: Minimum extracted text characters per page before using
+            embedded-image OCR instead of whole-page OCR.
         ocr_lang: Tesseract language code or `+`-separated language codes.
 
     Returns:
@@ -1849,8 +1845,8 @@ def extract_text(
     Args:
         path: File whose text should be extracted.
         use_ocr: Whether to OCR embedded images in supported document formats.
-        ocr_min_text: Minimum total PDF page-text characters before falling
-            back to whole-page OCR.
+        ocr_min_text: Minimum PDF page-text characters before using
+            embedded-image OCR instead of whole-page OCR for that page.
         ocr_lang: Tesseract language code or `+`-separated language codes.
 
     Returns:

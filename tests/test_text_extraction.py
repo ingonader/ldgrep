@@ -87,24 +87,36 @@ def test_pdf_ocr_uses_configured_threshold_and_language(monkeypatch) -> None:
 
 
 @pytest.mark.parametrize(
-    ("page_text", "threshold", "expected_sources", "expected_decision"),
+    ("page_text", "threshold", "expected_sources", "expected_decisions"),
     [
-        (["a", "bc"], 4, ["PDF page 1", "PDF page 2"], "whole-page OCR"),
+        (
+            ["a", "bc"],
+            4,
+            ["PDF page 1", "PDF page 2"],
+            [
+                "PDF page 1 OCR decision: whole-page OCR (1 < threshold 4)",
+                "PDF page 2 OCR decision: whole-page OCR (2 < threshold 4)",
+            ],
+        ),
         (
             ["ab", "cde"],
-            5,
-            ["PDF page 1, image 17"],
-            "embedded-image OCR only",
+            3,
+            ["PDF page 1", "PDF page 2, image 17"],
+            [
+                "PDF page 1 OCR decision: whole-page OCR (2 < threshold 3)",
+                "PDF page 2 OCR decision: embedded-image OCR only "
+                "(3 >= threshold 3)",
+            ],
         ),
     ],
 )
-def test_debug_pdf_logs_character_counts_and_ocr_decision(
+def test_pdf_ocr_decision_is_per_page(
     monkeypatch,
     capsys: pytest.CaptureFixture[str],
     page_text: list[str],
     threshold: int,
     expected_sources: list[str],
-    expected_decision: str,
+    expected_decisions: list[str],
 ) -> None:
     from ldgrep.ldgrep import configure_logging
 
@@ -164,15 +176,13 @@ def test_debug_pdf_logs_character_counts_and_ocr_decision(
     )
 
     diagnostics = capsys.readouterr().err
-    expected_total = sum(len(text.strip()) for text in page_text)
-    assert f"PDF aggregate: extracted {expected_total} text characters" in diagnostics
     for page_number, text in enumerate(page_text, start=1):
         assert (
             f"PDF page {page_number}: extracted {len(text.strip())} text characters"
             in diagnostics
         )
-    assert f"threshold is {threshold}" in diagnostics
-    assert f"PDF OCR decision: {expected_decision}" in diagnostics
+    for decision in expected_decisions:
+        assert decision in diagnostics
     assert ocr_sources == expected_sources
 
 
@@ -214,9 +224,7 @@ def test_ocr_image_invokes_tesseract(
     monkeypatch.setattr(text_extraction.subprocess, "run", fake_run)
     caplog.set_level(logging.DEBUG, logger="ldgrep")
 
-    assert text_extraction._ocr_image(
-        b"image bytes", "image.png", lang="deu+eng"
-    ) == [
+    assert text_extraction._ocr_image(b"image bytes", "image.png", lang="deu+eng") == [
         "[OCR: image.png]",
         "recognized text",
     ]
@@ -252,9 +260,7 @@ def test_ocr_log_level_includes_recognized_text(
     ]
     assert len(ocr_records) == 1
     assert ocr_records[0].levelname == "OCR"
-    assert ocr_records[0].getMessage() == (
-        "OCR text from image.png:\nrecognized text"
-    )
+    assert ocr_records[0].getMessage() == ("OCR text from image.png:\nrecognized text")
 
 
 def test_extract_text_automatically_ocr_standalone_image(
@@ -660,8 +666,7 @@ def test_pdf_extracts_annotations_forms_metadata_and_bookmarks(tmp_path: Path) -
             "keywords": "alpha, beta",
         }
     )
-    document.set_xml_metadata(
-        """<x:xmpmeta xmlns:x="adobe:ns:meta/">
+    document.set_xml_metadata("""<x:xmpmeta xmlns:x="adobe:ns:meta/">
           <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
             <rdf:Description xmlns:dc="http://purl.org/dc/elements/1.1/">
               <dc:description><rdf:Alt><rdf:li xml:lang="x-default">
@@ -669,8 +674,7 @@ def test_pdf_extracts_annotations_forms_metadata_and_bookmarks(tmp_path: Path) -
               </rdf:li></rdf:Alt></dc:description>
             </rdf:Description>
           </rdf:RDF>
-        </x:xmpmeta>"""
-    )
+        </x:xmpmeta>""")
     document.set_toc([[1, "Chapter bookmark", 1]])
     document.save(source)
     document.close()
@@ -856,7 +860,9 @@ def test_docx_extracts_tables_notes_comments_links_and_metadata(
         assert expected in extracted
 
 
-def test_pptx_extracts_shapes_tables_groups_and_notes(monkeypatch, tmp_path: Path) -> None:
+def test_pptx_extracts_shapes_tables_groups_and_notes(
+    monkeypatch, tmp_path: Path
+) -> None:
     """Verify recursive slide content and optional speaker notes are included."""
     import types
 
@@ -982,7 +988,9 @@ def test_legacy_ppt_reports_conversion_failures(
         text_extraction.extract_ppt_text(source)
 
 
-def test_odf_reports_missing_content_and_preserves_inline_spacing(tmp_path: Path) -> None:
+def test_odf_reports_missing_content_and_preserves_inline_spacing(
+    tmp_path: Path,
+) -> None:
     """Verify ODF archive errors and paragraph spacing/break serialization."""
     missing_content = tmp_path / "missing.odt"
     with zipfile.ZipFile(missing_content, "w") as archive:
@@ -1078,7 +1086,9 @@ def test_odf_extracts_nested_content_links_and_metadata(tmp_path: Path) -> None:
     assert lines.count("Endnote body") == 1
 
 
-def test_xlsx_extracts_extra_text_and_closes_workbook(monkeypatch, tmp_path: Path) -> None:
+def test_xlsx_extracts_extra_text_and_closes_workbook(
+    monkeypatch, tmp_path: Path
+) -> None:
     """Verify cell values, drawing text, comments, links, metadata, and cleanup."""
     import types
 
@@ -1265,9 +1275,9 @@ def test_ods_extracts_typed_values_inline_text_and_repeated_cells(
     )
     table = SimpleNamespace(
         getAttribute=lambda name: "Data",
-        getElementsByType=lambda element_type: [row]
-        if element_type is TableRow
-        else [],
+        getElementsByType=lambda element_type: (
+            [row] if element_type is TableRow else []
+        ),
     )
     document = SimpleNamespace(
         spreadsheet=SimpleNamespace(getElementsByType=lambda element_type: [table])
